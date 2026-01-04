@@ -106,7 +106,7 @@ ALPHABET_TRAINING = {
     'Т т': ['Տ', 'տ'],
     'Р р (мягкое)': ['Ր', 'ր'],
     'Цʼ': ['Ց', 'ց'],
-    'В в': ['Ւ', 'ւ'],
+    'В в (Ւ)': ['Ւ', 'ւ'],
     'Пʼ': ['Փ', 'փ'],
     'Кʼ': ['Ք', 'ք'],
     'О о': ['Օ', 'օ'],
@@ -115,8 +115,52 @@ ALPHABET_TRAINING = {
     'Ев ев': ['ԵՎ', 'և']
 }
 
+# Упрощенные описания для тренировки
+SIMPLE_TRAINING = {
+    'А': ['Ա', 'ա'],
+    'Б': ['Բ', 'բ'],
+    'Г': ['Գ', 'գ'],
+    'Д': ['Դ', 'դ'],
+    'Е': ['Ե', 'ե'],
+    'З': ['Զ', 'զ'],
+    'Э': ['Է', 'է'],
+    'Ы': ['Ը', 'ը'],
+    'Тʼ': ['Թ', 'թ'],
+    'Ж': ['Ժ', 'ժ'],
+    'И': ['Ի', 'ի'],
+    'Л': ['Լ', 'լ'],
+    'Х': ['Խ', 'խ'],
+    'Ц': ['Ծ', 'ծ'],
+    'К': ['Կ', 'կ'],
+    'Х(h)': ['Հ', 'հ'],
+    'Дз': ['Ձ', 'ձ'],
+    'Гх': ['Ղ', 'ղ'],
+    'Ч': ['Ճ', 'ճ'],
+    'М': ['Մ', 'մ'],
+    'Й': ['Յ', 'յ'],
+    'Н': ['Ն', 'ն'],
+    'Ш': ['Շ', 'շ'],
+    'Во': ['Ո', 'ո'],
+    'Чʼ': ['Չ', 'չ'],
+    'П': ['Պ', 'պ'],
+    'Дж': ['Ջ', 'ջ'],
+    'Р(тв)': ['Ռ', 'ռ'],
+    'С': ['Ս', 'ս'],
+    'В': ['Վ', 'վ'],
+    'Т': ['Տ', 'տ'],
+    'Р(мяг)': ['Ր', 'ր'],
+    'Цʼ': ['Ց', 'ց'],
+    'В(Ւ)': ['Ւ', 'ւ'],
+    'Пʼ': ['Փ', 'փ'],
+    'Кʼ': ['Ք', 'ք'],
+    'О': ['Օ', 'օ'],
+    'Ф': ['Ֆ', 'ֆ'],
+    'У': ['ՈՒ', 'ու'],
+    'Ев': ['ԵՎ', 'և']
+}
+
 # Список русских описаний для тренировки
-RUSSIAN_LETTERS = list(ALPHABET_TRAINING.keys())
+RUSSIAN_LETTERS = list(SIMPLE_TRAINING.keys())
 
 # ====== ПОЛНЫЙ БОЛЬШОЙ СЛОВАРЬ (700+ СЛОВ) ======
 VOCABULARY = {
@@ -241,7 +285,7 @@ VOCABULARY = {
     "սև": "черный",
     "սպիտակ": "белый",
     "մոխրագույն": "серый",
-    "մանուշակագույն": "фиолетовый",
+    "մանուշակագույн": "фиолетовый",
     "վարդագույն": "розовый",
     "նարնջագույն": "оранжевый",
     "շագանակագույն": "коричневый",
@@ -289,7 +333,7 @@ VOCABULARY = {
     "զարմուհի": "двоюродная сестра",
     "խորթ մայր": "мачеха",
     "խորթ հայր": "отчим",
-    "խորթ եղբայר": "сводный брат",
+    "խորթ եղբայր": "сводный брат",
     "ամուսնություն": "брак",
     "հարսանիք": "свадьба",
     "ամուսնալուծություն": "развод",
@@ -553,7 +597,7 @@ VOCABULARY = {
     "գրադարան": "библиотека",
     "թանգարան": "музей",
     "կինոթատրոն": "кинотеатр",
-    "թատրон": "театр",
+    "թատրոն": "театр",
     "ռեստորան": "ресторан",
     "սրճարան": "кафе",
     "բար": "бар",
@@ -1166,7 +1210,7 @@ def show_progress(message):
     progress_text = f"""
 📊 **ВАШ ПРОГРЕСС**
 
-🔤 Изучено букв: {progress.get('alphabet', 0)}/{len(ALPHABET_TRAINING)}
+🔤 Изучено букв: {progress.get('alphabet', 0)}/{len(SIMPLE_TRAINING)}
 📝 Изучено слов: {words_learned}/{total_words}
 🎯 Очков в тренировке: {progress.get('train_score', 0)}
     
@@ -1232,25 +1276,60 @@ def handle_all_messages(message):
     user_id = message.from_user.id
     user_text = message.text.strip()
     
-    # Если это команда, пропускаем
+    # Пропускаем команды
     if user_text.startswith('/'):
+        # Обрабатываем команду остановки
+        if user_text.lower() == '/stop_training':
+            stop_alphabet_training(message)
         return
     
     # 1. Проверяем, находится ли пользователь в тренировке букв
     if user_id in alphabet_training_mode and alphabet_training_mode[user_id]['active']:
         # Проверка команды остановки тренировки
-        if user_text.lower() in ['стоп', 'stop', 'закончить', 'хватит']:
+        if user_text.lower() in ['стоп', 'stop', 'закончить', 'хватит', 'stop training']:
             stop_alphabet_training(message)
             return
         
         # Обрабатываем ответ на тренировку букв
-        handle_alphabet_training_response(message, user_text)
+        current_letter = alphabet_training_mode[user_id]['current_letter']
+        correct_letters = SIMPLE_TRAINING.get(current_letter, [])
+        
+        # Увеличиваем счетчик вопросов
+        alphabet_training_mode[user_id]['total'] += 1
+        
+        # Проверяем ответ (без учета регистра)
+        if any(user_text == correct for correct in correct_letters) or \
+           any(user_text.lower() == correct.lower() for correct in correct_letters):
+            # Правильный ответ
+            alphabet_training_mode[user_id]['score'] += 1
+            
+            # Обновляем общий прогресс
+            if user_id not in user_progress:
+                user_progress[user_id] = {'alphabet': 0, 'train_score': 0}
+            user_progress[user_id]['alphabet'] = user_progress[user_id].get('alphabet', 0) + 1
+            user_progress[user_id]['train_score'] = user_progress[user_id].get('train_score', 0) + 1
+            
+            bot.reply_to(message, f"✅ Правильно!\n\nБуква: {current_letter}\nВаш ответ: **{user_text}**")
+            
+            # Даем следующую букву через 1 секунду
+            import time
+            time.sleep(1)
+            send_next_letter(message)
+        else:
+            # Неправильный ответ
+            correct_variants = " или ".join(correct_letters)
+            bot.reply_to(message, f"❌ Неверно.\n\nБуква: {current_letter}\nПравильный ответ: **{correct_variants}**")
+            
+            # Даем следующую букву через 2 секунды
+            import time
+            time.sleep(2)
+            send_next_letter(message)
         return
     
     # 2. Проверяем, находится ли пользователь в тренировке слов
     if user_id in user_progress and 'current_word' in user_progress[user_id]:
         # Проверка команды остановки тренировки
-        if user_text.lower() in ['стоп', 'stop', 'закончить', 'хватит']:
+        if user_text.lower() in ['стоп', 'stop', 'закончить', 'хватит', 'stop training']:
             bot.reply_to(message, "✅ Тренировка слов остановлена. Используйте /train для новой тренировки.")
             if 'current_word' in user_progress[user_id]:
                 del user_progress[user_id]['current_word']
@@ -1272,7 +1351,7 @@ def handle_all_messages(message):
             del user_progress[user_id]['current_word']
             del user_progress[user_id]['current_translation']
             
-            # Показываем результат и сразу даем новое слово
+            # Показываем результат
             bot.reply_to(message, f"✅ Верно!\n\nСлово: **{correct_word}**\nПеревод: {translation}")
             
             # Даем новое слово через секунду
@@ -1314,46 +1393,6 @@ def handle_all_messages(message):
     bot.reply_to(message, 
                 "🤔 Не понял ваш запрос.\n\nИспользуйте:\n• /train - для тренировки слов\n• /search - для поиска перевода\n• /start - для главного меню",
                 reply_markup=keyboard)
-
-def handle_alphabet_training_response(message, user_text):
-    user_id = message.from_user.id
-    
-    if user_id not in alphabet_training_mode or not alphabet_training_mode[user_id]['active']:
-        return
-    
-    current_letter = alphabet_training_mode[user_id]['current_letter']
-    correct_letters = ALPHABET_TRAINING.get(current_letter, [])
-    
-    # Увеличиваем счетчик вопросов
-    alphabet_training_mode[user_id]['total'] += 1
-    
-    # Проверяем ответ
-    if user_text in correct_letters:
-        # Правильный ответ
-        alphabet_training_mode[user_id]['score'] += 1
-        
-        # Обновляем общий прогресс
-        if user_id not in user_progress:
-            user_progress[user_id] = {'alphabet': 0, 'train_score': 0}
-        user_progress[user_id]['alphabet'] = user_progress[user_id].get('alphabet', 0) + 1
-        user_progress[user_id]['train_score'] = user_progress[user_id].get('train_score', 0) + 1
-        
-        bot.reply_to(message, f"✅ Правильно!\n\nБуква: {current_letter}\nВаш ответ: **{user_text}**")
-        
-        # Даем следующую букву через 1 секунду
-        import time
-        time.sleep(1)
-        send_next_letter(message)
-        
-    else:
-        # Неправильный ответ
-        correct_variants = " или ".join(correct_letters)
-        bot.reply_to(message, f"❌ Неверно.\n\nБуква: {current_letter}\nПравильный ответ: **{correct_variants}**\nВаш ответ: {user_text}")
-        
-        # Даем следующую букву через 2 секунды
-        import time
-        time.sleep(2)
-        send_next_letter(message)
 
 # ================== ЗАПУСК ==================
 
