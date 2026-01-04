@@ -28,46 +28,92 @@ def webhook():
     bot.process_new_updates([update])
     return "OK", 200
 
-
-# ====== АРМЯНСКИЙ АЛФАВИТ ======
+# ====== АРМЯНСКИЙ АЛФАВИТ (39 букв с правильным произношением) ======
 ARMENIAN_ALPHABET = {
-    'Ա ա': 'А а [a]',
-    'Բ բ': 'Б б [b]',
-    'Գ գ': 'Г г [g]',
-    'Դ դ': 'Д д [d]',
-    'Ե ե': 'Е е [ye/e]',
-    'Զ զ': 'З з [z]',
-    'Է է': 'Э э [e]',
-    'Ը ը': 'Ы ы [ə]',
-    'Թ թ': 'Тʼ тʼ [tʰ]',
-    'Ժ ժ': 'Ж ж [ʒ]',
-    'Ի ի': 'И и [i]',
-    'Լ լ': 'Л л [l]',
-    'Խ խ': 'Х х [χ]',
-    'Ծ ծ': 'Ц ц [ts]',
-    'Կ կ': 'К к [k]',
-    'Հ հ': 'Х х [h]',
-    'Ձ ձ': 'Дз дз [dz]',
-    'Ղ ղ': 'Гх гх [ʁ]',
-    'Ճ ճ': 'Ч ч [tʃ]',
-    'Մ մ': 'М м [m]',
-    'Յ յ': 'Й й [j]',
-    'Ն ն': 'Н н [n]',
-    'Շ շ': 'Ш ш [ʃ]',
-    'Ո ո': 'Во во [vo/o]',
-    'Չ չ': 'Чʼ чʼ [tʃʰ]',
-    'Պ պ': 'П п [p]',
-    'Ջ ջ': 'Дж дж [dʒ]',
-    'Ռ ռ': 'Рр рр [r]',
-    'Ս ս': 'С с [s]',
-    'Վ վ': 'В в [v]',
-    'Տ տ': 'Т т [t]',
-    'Ր ր': 'Р р [ɾ]',
-    'Ց ց': 'Цʼ цʼ [tsʰ]',
-    'Փ փ': 'Пʼ пʼ [pʰ]',
-    'Ք ք': 'Кʼ кʼ [kʰ]',
-    'Օ օ': 'О о [o]',
-    'Ֆ ֆ': 'Ф ф [f]'
+    'Ա ա': 'А а (а)',
+    'Բ բ': 'Б б (б)',
+    'Գ գ': 'Г г (г)',
+    'Դ դ': 'Д д (д)',
+    'Ե ե': 'Е е (йе/е)',
+    'Զ զ': 'З з (з)',
+    'Է է': 'Э э (э)',
+    'Ը ը': 'Ы ы (ы)',
+    'Թ թ': 'Т тʼ (тʰ)',
+    'Ժ ժ': 'Ж ж (ж)',
+    'Ի ի': 'И и (и)',
+    'Լ լ': 'Л л (л)',
+    'Խ խ': 'Х х (х)',
+    'Ծ ծ': 'Ц ц (ц)',
+    'Կ կ': 'К к (к)',
+    'Հ հ': 'Х х (h)',
+    'Ձ ձ': 'Дз дз (дз)',
+    'Ղ ղ': 'Гх гх (гх)',
+    'Ճ ճ': 'Ч ч (ч)',
+    'Մ մ': 'М м (м)',
+    'Յ յ': 'Й й (й)',
+    'Ն ն': 'Н н (н)',
+    'Շ շ': 'Ш ш (ш)',
+    'Ո ո': 'Во во (во/о)',
+    'Չ չ': 'Ч чʼ (чʰ)',
+    'Պ պ': 'П п (п)',
+    'Ջ ջ': 'Дж дж (дж)',
+    'Ռ ռ': 'Р р (твердое р)',
+    'Ս ս': 'С с (с)',
+    'Վ վ': 'В в (в)',
+    'Տ տ': 'Т т (т)',
+    'Ր ր': 'Р р (мягкое р)',
+    'Ց ց': 'Ц цʼ (цʰ)',
+    'Ւ ւ': 'В в (в)',
+    'Փ փ': 'П пʼ (пʰ)',
+    'Ք ք': 'К кʼ (кʰ)',
+    'Օ օ': 'О о (о)',
+    'Ֆ ֆ': 'Ф ф (ф)',
+    'ՈՒ ու': 'У у (у)',
+    'ԵՎ և': 'Ев ев (ев)'
+}
+
+# Словарь для тренировки букв: русское описание -> армянская буква
+ALPHABET_TRAINING = {
+    'А а (а)': 'Ա',
+    'Б б (б)': 'Բ',
+    'Г г (г)': 'Գ',
+    'Д д (д)': 'Դ',
+    'Е е (йе/е)': 'Ե',
+    'З з (з)': 'Զ',
+    'Э э (э)': 'Է',
+    'Ы ы (ы)': 'Ը',
+    'Т тʼ (тʰ)': 'Թ',
+    'Ж ж (ж)': 'Ժ',
+    'И и (и)': 'Ի',
+    'Л л (л)': 'Լ',
+    'Х х (х)': 'Խ',
+    'Ц ц (ц)': 'Ծ',
+    'К к (к)': 'Կ',
+    'Х х (h)': 'Հ',
+    'Дз дз (дз)': 'Ձ',
+    'Гх гх (гх)': 'Ղ',
+    'Ч ч (ч)': 'Ճ',
+    'М м (м)': 'Մ',
+    'Й й (й)': 'Յ',
+    'Н н (н)': 'Ն',
+    'Ш ш (ш)': 'Շ',
+    'Во во (во/о)': 'Ո',
+    'Ч чʼ (чʰ)': 'Չ',
+    'П п (п)': 'Պ',
+    'Дж дж (дж)': 'Ջ',
+    'Р р (твердое р)': 'Ռ',
+    'С с (с)': 'Ս',
+    'В в (в)': 'Վ',
+    'Т т (т)': 'Տ',
+    'Р р (мягкое р)': 'Ր',
+    'Ц цʼ (цʰ)': 'Ց',
+    'В в (в)': 'Ւ',
+    'П пʼ (пʰ)': 'Փ',
+    'К кʼ (кʰ)': 'Ք',
+    'О о (о)': 'Օ',
+    'Ф ф (ф)': 'Ֆ',
+    'У у (у)': 'ՈՒ',
+    'Ев ев (ев)': 'ԵՎ'
 }
 
 # ====== ОГРОМНЫЙ СЛОВАРЬ (700+ СЛОВ) ======
@@ -150,7 +196,7 @@ VOCABULARY = {
     "կես": "половина",
     "եռապատիկ": "тройной",
     "քառակի": "четверной",
-    "կրկնակի": "двойной",
+    "կրկնակи": "двойной",
     "ամբողջ": "целый",
     "կոտորակ": "дробь",
     "թիվ": "число",
@@ -291,7 +337,6 @@ VOCABULARY = {
     "նուշ": "миндаль",
     "կեռաս": "вишня",
     "բողկ": "редька",
-    "ռեհան": "базилик",
     "համեմունք": "специя",
     
     # Дни недели и время (40)
@@ -863,30 +908,41 @@ VOCABULARY = {
     "հետ": "с"
 }
 
-# Правила
+# Правила произношения
 RULES = {
     "pronunciation": """
 📢 **ПРАВИЛА ПРОИЗНОШЕНИЯ**
 
-1. **Ударение** - всегда падает на последний слог:
-   - բարև (ба-РЕВ) - привет
-   - շնորհակալություն (шноракалуТЮН) - спасибо
+✅ **Армянский алфавит состоит из 39 букв:**
 
-2. **Гласные:**
+1. **Гласные буквы (7):**
    - Ա, ա - [а] как русское "а"
-   - Ե, ե - [йе] в начале слова, [э] в середине
+   - Ե, ե - в начале слова [йе], в середине [э]
    - Է, է - всегда [э]
-   - Ը, ը - средний звук между [ы] и [э]
-   - Ո, ո - [во] в начале, [о] в середине
+   - Ը, ը - средний звук [ы]
+   - Ի, ի - [и]
+   - Ո, ո - в начале [во], в середине [о]
+   - Օ, օ - [о]
 
-3. **Согласные:**
-   - Բ, բ - [б]
-   - Գ, գ - [г]
-   - Դ, դ - [д]
-   - Թ, թ - придыхательное [тʰ]
-   - Ջ, ջ - [дж] как в "джем"
-   - Ռ, ռ - твердое [р] (вибрирующее)
-   - Ր, ր - мягкое [р]
+2. **Согласные с мягким звучанием:**
+   - Ր, ր - мягкое "р" (как русское "рь")
+   - Լ, լ - мягкое "л" (как "ль")
+   - Ն, ն - мягкое "н" (как "нь")
+   - Յ, յ - мягкий знак "й"
+
+3. **Особые буквы:**
+   - ՈՒ, ու - [у]
+   - ԵՎ, և - [ев]
+   - Ռ, ռ - твердое "р" (вибрирующее)
+   - Թ, թ - придыхательное "т" (тʰ)
+   - Չ, չ - придыхательное "ч" (чʰ)
+   - Փ, փ - придыхательное "п" (пʰ)
+   - Ք, ք - придыхательное "к" (кʰ)
+   - Ց, ց - придыхательное "ц" (цʰ)
+
+4. **Ударение** - всегда на последнем слоге:
+   - բարև (ба-РЕВ)
+   - Երևան (Ере-ВАН)
     """,
     
     "writing": """
@@ -894,22 +950,19 @@ RULES = {
 
 1. **Направление письма** - слева направо.
 
-2. **Заглавные буквы** используются для:
-   - Начала предложения
-   - Имен собственных
-   - Названий
+2. **Заглавные буквы** используются:
+   - В начале предложения
+   - В именах собственных
+   - В названиях
 
-3. **Пунктуация** (аналогично русской):
-   - Точка (․)
-   - Запятая (,)
-   - Восклицательный (!)
-   - Вопросительный (?)
+3. **Особенности письма:**
+   - Буквы пишутся отдельно друг от друга
+   - Пробелы ставятся между словами
+   - Артиклей нет
 
-4. **Артикли** отсутствуют.
-
-5. **Слитное написание** - предлоги пишутся слитно:
-   - տանը (в доме) = տուն + ը
-   - դպրոցում (в школе) = դպրոց + ում
+4. **Соединительные буквы:**
+   - ԵՎ (և) - используется как союз "и"
+   - ՈՒ (ու) - считается отдельной буквой
     """
 }
 
@@ -941,14 +994,15 @@ def send_welcome(message):
 • Ваш прогресс: {user_progress[user_id]['words_learned']} слов
 
 🎯 **Команды:**
-🔤 /alphabet - Армянский алфавит
+🔤 /alphabet - Армянский алфавит (39 букв)
 📖 /rules - Правила произношения и написания
 📝 /vocabulary - Словарь ({len(VOCABULARY)}+ слов)
 🎯 /train - Тренировка слов
+🔠 /train_alphabet - Тренировка букв
 🔍 /search - Найти перевод
 📊 /progress - Мой прогресс
 
-💡 **Совет:** Начните с /alphabet, затем переходите к /train
+💡 **Совет:** Начните с /alphabet, затем тренируйте буквы /train_alphabet
     """
     
     keyboard = InlineKeyboardMarkup()
@@ -961,7 +1015,10 @@ def send_welcome(message):
         InlineKeyboardButton("🎯 Тренировка", callback_data="train")
     )
     keyboard.row(
-        InlineKeyboardButton("📊 Прогресс", callback_data="progress"),
+        InlineKeyboardButton("🔠 Буквы", callback_data="train_alphabet"),
+        InlineKeyboardButton("📊 Прогресс", callback_data="progress")
+    )
+    keyboard.row(
         InlineKeyboardButton("🔍 Поиск", callback_data="search")
     )
     
@@ -969,7 +1026,7 @@ def send_welcome(message):
 
 @bot.message_handler(commands=['alphabet'])
 def show_alphabet(message):
-    alphabet_text = "🔤 **АРМЯНСКИЙ АЛФАВИТ**\n\n"
+    alphabet_text = "🔤 **АРМЯНСКИЙ АЛФАВИТ (39 букв)**\n\n"
     
     letters = list(ARMENIAN_ALPHABET.items())
     for i in range(0, len(letters), 5):
@@ -978,7 +1035,13 @@ def show_alphabet(message):
             alphabet_text += f"**{armenian}** - {russian}\n"
         alphabet_text += "\n"
     
-    bot.send_message(message.chat.id, alphabet_text, parse_mode="Markdown")
+    keyboard = InlineKeyboardMarkup()
+    keyboard.row(
+        InlineKeyboardButton("🔠 Тренировать буквы", callback_data="train_alphabet"),
+        InlineKeyboardButton("📖 Правила", callback_data="rules")
+    )
+    
+    bot.send_message(message.chat.id, alphabet_text, parse_mode="Markdown", reply_markup=keyboard)
 
 @bot.message_handler(commands=['rules'])
 def show_rules(message):
@@ -1022,8 +1085,8 @@ def show_vocabulary(message):
     
     keyboard = InlineKeyboardMarkup()
     keyboard.row(
-        InlineKeyboardButton("🎯 Начать тренировку", callback_data="train"),
-        InlineKeyboardButton("🔍 Поиск слова", callback_data="search")
+        InlineKeyboardButton("🎯 Тренировать слова", callback_data="train"),
+        InlineKeyboardButton("🔠 Тренировать буквы", callback_data="train_alphabet")
     )
     
     bot.send_message(message.chat.id, vocab_text, parse_mode="Markdown", reply_markup=keyboard)
@@ -1052,6 +1115,31 @@ def start_training(message):
     
     bot.send_message(message.chat.id, train_text, parse_mode="Markdown")
 
+@bot.message_handler(commands=['train_alphabet'])
+def start_alphabet_training(message):
+    # Выбираем случайную букву для тренировки
+    russian_description = random.choice(list(ALPHABET_TRAINING.keys()))
+    correct_letter = ALPHABET_TRAINING[russian_description]
+    
+    user_id = message.from_user.id
+    if user_id not in user_progress:
+        user_progress[user_id] = {'current_alphabet': correct_letter, 'current_description': russian_description}
+    else:
+        user_progress[user_id]['current_alphabet'] = correct_letter
+        user_progress[user_id]['current_description'] = russian_description
+    
+    train_text = f"""
+🔠 **ТРЕНИРОВКА БУКВ**
+
+Напишите армянскую букву для:
+
+**{russian_description}**
+
+✍️ Напишите букву (можно только заглавную или строчную):
+    """
+    
+    bot.send_message(message.chat.id, train_text, parse_mode="Markdown")
+
 @bot.message_handler(commands=['search'])
 def search_word(message):
     bot.send_message(message.chat.id, "🔍 **ПОИСК СЛОВА**\n\nНапишите слово на русском или армянском, и я найду перевод:")
@@ -1061,17 +1149,27 @@ def show_progress(message):
     user_id = message.from_user.id
     progress = user_progress.get(user_id, {})
     
+    total_words = len(VOCABULARY)
+    words_learned = progress.get('words_learned', 0)
+    percentage = round(words_learned / total_words * 100, 1) if total_words > 0 else 0
+    
     progress_text = f"""
 📊 **ВАШ ПРОГРЕСС**
 
-🔤 Изучено букв: {progress.get('alphabet', 0)}/{len(ARMENIAN_ALPHABET)}
-📝 Изучено слов: {progress.get('words_learned', 0)}/{len(VOCABULARY)}
+🔤 Изучено букв: {progress.get('alphabet', 0)}/{len(ALPHABET_TRAINING)}
+📝 Изучено слов: {words_learned}/{total_words}
 🎯 Очков в тренировке: {progress.get('train_score', 0)}
     
-📈 Процент изучения: {round(progress.get('words_learned', 0) / len(VOCABULARY) * 100, 1)}%
+📈 Процент изучения: {percentage}%
     """
     
-    bot.send_message(message.chat.id, progress_text)
+    keyboard = InlineKeyboardMarkup()
+    keyboard.row(
+        InlineKeyboardButton("🎯 Продолжить слова", callback_data="train"),
+        InlineKeyboardButton("🔠 Продолжить буквы", callback_data="train_alphabet")
+    )
+    
+    bot.send_message(message.chat.id, progress_text, reply_markup=keyboard)
 
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callback(call):
@@ -1105,6 +1203,9 @@ def handle_callback(call):
     elif call.data == "train":
         start_training(call.message)
         
+    elif call.data == "train_alphabet":
+        start_alphabet_training(call.message)
+        
     elif call.data == "progress":
         show_progress(call.message)
         
@@ -1117,9 +1218,55 @@ def handle_message(message):
     text = message.text.strip()
     
     if user_id not in user_progress:
-        user_progress[user_id] = {'words_learned': 0, 'train_score': 0}
+        user_progress[user_id] = {'words_learned': 0, 'train_score': 0, 'alphabet': 0}
     
-    # Проверка тренировки
+    # Проверка тренировки букв
+    if 'current_alphabet' in user_progress.get(user_id, {}):
+        correct_letter = user_progress[user_id]['current_alphabet']
+        description = user_progress[user_id]['current_description']
+        
+        # Принимаем как заглавную, так и строчную букву
+        if text.upper() == correct_letter.upper():
+            # Правильный ответ
+            user_progress[user_id]['alphabet'] = user_progress[user_id].get('alphabet', 0) + 1
+            user_progress[user_id]['train_score'] = user_progress[user_id].get('train_score', 0) + 1
+            
+            score = user_progress[user_id]['train_score']
+            letters_learned = user_progress[user_id]['alphabet']
+            total_letters = len(ALPHABET_TRAINING)
+            percentage = round(letters_learned / total_letters * 100, 1)
+            
+            response = f"""
+✅ **ПРАВИЛЬНО!**
+
+🔤 Буква: **{correct_letter}**
+📝 Описание: {description}
+
+📊 **Ваш прогресс:**
+🎯 Очков: {score}
+🔠 Изучено букв: {letters_learned}/{total_letters} ({percentage}%)
+
+🔄 Продолжить тренировку букв? /train_alphabet
+            """
+            
+            del user_progress[user_id]['current_alphabet']
+            del user_progress[user_id]['current_description']
+            
+        else:
+            # Неправильный ответ
+            response = f"""
+❌ **НЕПРАВИЛЬНО**
+
+Правильный ответ: **{correct_letter}**
+Описание: {description}
+
+🔄 Попробуйте еще раз или напишите /train_alphabet для новой буквы
+            """
+        
+        bot.send_message(message.chat.id, response, parse_mode="Markdown")
+        return
+    
+    # Проверка тренировки слов
     if 'current_word' in user_progress.get(user_id, {}):
         correct_word = user_progress[user_id]['current_word']
         translation = user_progress[user_id]['current_translation']
@@ -1184,9 +1331,8 @@ def handle_message(message):
             InlineKeyboardButton("🏠 Главное меню", callback_data="start")
         )
         bot.send_message(message.chat.id, 
-                        "🤔 Не понял ваш запрос. Используйте команды или кнопки ниже.",
+                        "🤔 Не понял ваш запрос.\n\nИспользуйте команды:\n/start - Главное меню\n/help - Помощь",
                         reply_markup=keyboard)
-
 
 # ================== ЗАПУСК ==================
 
