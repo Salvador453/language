@@ -72,49 +72,55 @@ ARMENIAN_ALPHABET = {
     'ԵՎ և': 'Ев ев (ев)'
 }
 
-# Словарь для тренировки букв: русское описание -> армянская буква
+# Словарь для тренировки букв: русское описание -> список армянских букв
 ALPHABET_TRAINING = {
-    'А а (а)': 'Ա',
-    'Б б (б)': 'Բ',
-    'Г г (г)': 'Գ',
-    'Д д (д)': 'Դ',
-    'Е е (йе/е)': 'Ե',
-    'З з (з)': 'Զ',
-    'Э э (э)': 'Է',
-    'Ы ы (ы)': 'Ը',
-    'Т тʼ (тʰ)': 'Թ',
-    'Ж ж (ж)': 'Ժ',
-    'И и (и)': 'Ի',
-    'Л л (л)': 'Լ',
-    'Х х (х)': 'Խ',
-    'Ц ц (ц)': 'Ծ',
-    'К к (к)': 'Կ',
-    'Х х (h)': 'Հ',
-    'Дз дз (дз)': 'Ձ',
-    'Гх гх (гх)': 'Ղ',
-    'Ч ч (ч)': 'Ճ',
-    'М м (м)': 'Մ',
-    'Й й (й)': 'Յ',
-    'Н н (н)': 'Ն',
-    'Ш ш (ш)': 'Շ',
-    'Во во (во/о)': 'Ո',
-    'Ч чʼ (чʰ)': 'Չ',
-    'П п (п)': 'Պ',
-    'Дж дж (дж)': 'Ջ',
-    'Р р (твердое р)': 'Ռ',
-    'С с (с)': 'Ս',
-    'В в (в)': 'Վ',
-    'Т т (т)': 'Տ',
-    'Р р (мягкое р)': 'Ր',
-    'Ц цʼ (цʰ)': 'Ց',
-    'В в (в)': 'Ւ',
-    'П пʼ (пʰ)': 'Փ',
-    'К кʼ (кʰ)': 'Ք',
-    'О о (о)': 'Օ',
-    'Ф ф (ф)': 'Ֆ',
-    'У у (у)': 'ՈՒ',
-    'Ев ев (ев)': 'ԵՎ'
+    'А а (а)': ['Ա', 'ա'],
+    'Б б (б)': ['Բ', 'բ'],
+    'Г г (г)': ['Գ', 'գ'],
+    'Д д (д)': ['Դ', 'դ'],
+    'Е е (йе/е)': ['Ե', 'ե'],
+    'З з (з)': ['Զ', 'զ'],
+    'Э э (э)': ['Է', 'է'],
+    'Ы ы (ы)': ['Ը', 'ը'],
+    'Т тʼ (тʰ)': ['Թ', 'թ'],
+    'Ж ж (ж)': ['Ժ', 'ժ'],
+    'И и (и)': ['Ի', 'ի'],
+    'Л л (л)': ['Լ', 'լ'],
+    'Х х (х)': ['Խ', 'խ'],
+    'Ц ц (ц)': ['Ծ', 'ծ'],
+    'К к (к)': ['Կ', 'կ'],
+    'Х х (h)': ['Հ', 'հ'],
+    'Дз дз (дз)': ['Ձ', 'ձ'],
+    'Гх гх (гх)': ['Ղ', 'ղ'],
+    'Ч ч (ч)': ['Ճ', 'ճ'],
+    'М м (м)': ['Մ', 'մ'],
+    'Й й (й)': ['Յ', 'յ'],
+    'Н н (н)': ['Ն', 'ն'],
+    'Ш ш (ш)': ['Շ', 'շ'],
+    'Во во (во/о)': ['Ո', 'ո'],
+    'Ч чʼ (чʰ)': ['Չ', 'չ'],
+    'П п (п)': ['Պ', 'պ'],
+    'Дж дж (дж)': ['Ջ', 'ջ'],
+    'Р р (твердое р)': ['Ռ', 'ռ'],
+    'С с (с)': ['Ս', 'ս'],
+    'В в (в)': ['Վ', 'վ'],
+    'Т т (т)': ['Տ', 'տ'],
+    'Р р (мягкое р)': ['Ր', 'ր'],
+    'Ц цʼ (цʰ)': ['Ց', 'ց'],
+    'В в (в)': ['Ւ', 'ւ'],
+    'П пʼ (пʰ)': ['Փ', 'փ'],
+    'К кʼ (кʰ)': ['Ք', 'ք'],
+    'О о (о)': ['Օ', 'օ'],
+    'Ф ф (ф)': ['Ֆ', 'ֆ'],
+    'У у (у)': ['ՈՒ', 'ու'],
+    'Ев ев (ев)': ['ԵՎ', 'և']
 }
+
+# Обратный словарь для быстрой проверки (армянская буква -> русское описание)
+ALPHABET_REVERSE = {}
+for russian_desc, armenian_letters in ALPHABET_TRAINING.items():
+    for letter in armenian_letters:
+        ALPHABET_REVERSE[letter] = russian_desc
 
 # ====== ОГРОМНЫЙ СЛОВАРЬ (700+ СЛОВ) ======
 VOCABULARY = {
@@ -196,7 +202,7 @@ VOCABULARY = {
     "կես": "половина",
     "եռապատիկ": "тройной",
     "քառակի": "четверной",
-    "կրկնակи": "двойной",
+    "կրկնակի": "двойной",
     "ամբողջ": "целый",
     "կոտորակ": "дробь",
     "թիվ": "число",
@@ -1119,13 +1125,16 @@ def start_training(message):
 def start_alphabet_training(message):
     # Выбираем случайную букву для тренировки
     russian_description = random.choice(list(ALPHABET_TRAINING.keys()))
-    correct_letter = ALPHABET_TRAINING[russian_description]
+    correct_letters = ALPHABET_TRAINING[russian_description]  # список возможных вариантов
     
     user_id = message.from_user.id
     if user_id not in user_progress:
-        user_progress[user_id] = {'current_alphabet': correct_letter, 'current_description': russian_description}
+        user_progress[user_id] = {
+            'current_alphabet': correct_letters,  # сохраняем список
+            'current_description': russian_description
+        }
     else:
-        user_progress[user_id]['current_alphabet'] = correct_letter
+        user_progress[user_id]['current_alphabet'] = correct_letters
         user_progress[user_id]['current_description'] = russian_description
     
     train_text = f"""
@@ -1135,7 +1144,7 @@ def start_alphabet_training(message):
 
 **{russian_description}**
 
-✍️ Напишите букву (можно только заглавную или строчную):
+✍️ Напишите букву (можно заглавную или строчную):
     """
     
     bot.send_message(message.chat.id, train_text, parse_mode="Markdown")
@@ -1222,11 +1231,11 @@ def handle_message(message):
     
     # Проверка тренировки букв
     if 'current_alphabet' in user_progress.get(user_id, {}):
-        correct_letter = user_progress[user_id]['current_alphabet']
+        correct_letters = user_progress[user_id]['current_alphabet']  # список возможных вариантов
         description = user_progress[user_id]['current_description']
         
         # Принимаем как заглавную, так и строчную букву
-        if text.upper() == correct_letter.upper():
+        if text in correct_letters:
             # Правильный ответ
             user_progress[user_id]['alphabet'] = user_progress[user_id].get('alphabet', 0) + 1
             user_progress[user_id]['train_score'] = user_progress[user_id].get('train_score', 0) + 1
@@ -1239,7 +1248,7 @@ def handle_message(message):
             response = f"""
 ✅ **ПРАВИЛЬНО!**
 
-🔤 Буква: **{correct_letter}**
+🔤 Буква: **{text}**
 📝 Описание: {description}
 
 📊 **Ваш прогресс:**
@@ -1253,11 +1262,12 @@ def handle_message(message):
             del user_progress[user_id]['current_description']
             
         else:
-            # Неправильный ответ
+            # Неправильный ответ - показываем правильные варианты
+            correct_variants = " или ".join(correct_letters)
             response = f"""
 ❌ **НЕПРАВИЛЬНО**
 
-Правильный ответ: **{correct_letter}**
+Правильные варианты: **{correct_variants}**
 Описание: {description}
 
 🔄 Попробуйте еще раз или напишите /train_alphabet для новой буквы
@@ -1322,6 +1332,12 @@ def handle_message(message):
         if russian.lower() == text.lower():
             bot.send_message(message.chat.id, f"🇷🇺 **{text}**\n🇦🇲 {armenian}", parse_mode="Markdown")
             return
+    
+    # Поиск буквы в алфавите
+    if text in ALPHABET_REVERSE:
+        description = ALPHABET_REVERSE[text]
+        bot.send_message(message.chat.id, f"🔤 **{text}**\n📝 {description}", parse_mode="Markdown")
+        return
     
     # Если не команда и не распознано
     if not text.startswith('/'):
