@@ -289,7 +289,7 @@ VOCABULARY = {
     "զարմուհի": "двоюродная сестра",
     "խորթ մայր": "мачеха",
     "խորթ հայր": "отчим",
-    "խորթ եղբայր": "сводный брат",
+    "խորթ եղբայר": "сводный брат",
     "ամուսնություն": "брак",
     "հարսանիք": "свадьба",
     "ամուսնալուծություն": "развод",
@@ -553,7 +553,7 @@ VOCABULARY = {
     "գրադարան": "библиотека",
     "թանգարան": "музей",
     "կինոթատրոն": "кинотеатр",
-    "թատրոն": "театр",
+    "թատրон": "театр",
     "ռեստորան": "ресторан",
     "սրճարան": "кафе",
     "բար": "бар",
@@ -1221,92 +1221,101 @@ def handle_callback(call):
         
     elif call.data == "search":
         search_word(call.message)
+        
+    elif call.data == "stop_train":
+        stop_alphabet_training(call.message)
+        return
 
+# ОСНОВНОЙ ОБРАБОТЧИК СООБЩЕНИЙ
 @bot.message_handler(func=lambda message: True)
-def handle_message(message):
+def handle_all_messages(message):
     user_id = message.from_user.id
-    text = message.text.strip()
+    user_text = message.text.strip()
     
-    # Проверяем, находится ли пользователь в режиме тренировки букв
-    if user_id in alphabet_training_mode and alphabet_training_mode[user_id]['active']:
-        handle_alphabet_training(message, text)
+    # Если это команда, пропускаем
+    if user_text.startswith('/'):
         return
     
-    # Проверка тренировки слов
-    if 'current_word' in user_progress.get(user_id, {}):
+    # 1. Проверяем, находится ли пользователь в тренировке букв
+    if user_id in alphabet_training_mode and alphabet_training_mode[user_id]['active']:
+        # Проверка команды остановки тренировки
+        if user_text.lower() in ['стоп', 'stop', 'закончить', 'хватит']:
+            stop_alphabet_training(message)
+            return
+        
+        # Обрабатываем ответ на тренировку букв
+        handle_alphabet_training_response(message, user_text)
+        return
+    
+    # 2. Проверяем, находится ли пользователь в тренировке слов
+    if user_id in user_progress and 'current_word' in user_progress[user_id]:
+        # Проверка команды остановки тренировки
+        if user_text.lower() in ['стоп', 'stop', 'закончить', 'хватит']:
+            bot.reply_to(message, "✅ Тренировка слов остановлена. Используйте /train для новой тренировки.")
+            if 'current_word' in user_progress[user_id]:
+                del user_progress[user_id]['current_word']
+            if 'current_translation' in user_progress[user_id]:
+                del user_progress[user_id]['current_translation']
+            return
+        
+        # Проверяем ответ пользователя
         correct_word = user_progress[user_id]['current_word']
         translation = user_progress[user_id]['current_translation']
         
-        if text.lower() == correct_word.lower():
+        # Сравниваем без учета регистра и пробелов
+        if user_text.strip().lower() == correct_word.lower():
             # Правильный ответ
             user_progress[user_id]['words_learned'] = user_progress[user_id].get('words_learned', 0) + 1
             user_progress[user_id]['train_score'] = user_progress[user_id].get('train_score', 0) + 1
             
-            score = user_progress[user_id]['train_score']
-            words_learned = user_progress[user_id]['words_learned']
-            total_words = len(VOCABULARY)
-            percentage = round(words_learned / total_words * 100, 1)
-            
-            response = f"""
-✅ **ПРАВИЛЬНО!**
-
-📝 Слово: **{correct_word}**
-🇷🇺 Перевод: {translation}
-
-📊 **Ваш прогресс:**
-🎯 Очков: {score}
-📚 Изучено слов: {words_learned}/{total_words} ({percentage}%)
-
-🔄 Продолжить тренировку? /train
-            """
-            
+            # Удаляем текущее слово
             del user_progress[user_id]['current_word']
             del user_progress[user_id]['current_translation']
             
+            # Показываем результат и сразу даем новое слово
+            bot.reply_to(message, f"✅ Верно!\n\nСлово: **{correct_word}**\nПеревод: {translation}")
+            
+            # Даем новое слово через секунду
+            import time
+            time.sleep(1)
+            start_training(message)
         else:
             # Неправильный ответ
-            response = f"""
-❌ **НЕПРАВИЛЬНО**
-
-Правильный ответ: **{correct_word}**
-Перевод: {translation}
-
-🔄 Попробуйте еще раз или напишите /train для нового слова
-            """
-        
-        bot.send_message(message.chat.id, response, parse_mode="Markdown")
+            bot.reply_to(message, f"❌ Неверно. Правильный ответ: **{correct_word}**\nПеревод: {translation}")
+            
+            # Удаляем текущее слово
+            del user_progress[user_id]['current_word']
+            del user_progress[user_id]['current_translation']
+            
+            # Даем новое слово через 2 секунды
+            import time
+            time.sleep(2)
+            start_training(message)
         return
     
-    # Поиск слова в словаре
-    if text in VOCABULARY:
-        translation = VOCABULARY[text]
-        bot.send_message(message.chat.id, f"🇦🇲 **{text}**\n🇷🇺 {translation}", parse_mode="Markdown")
+    # 3. Поиск слова в словаре
+    if user_text in VOCABULARY:
+        translation = VOCABULARY[user_text]
+        bot.reply_to(message, f"🇦🇲 **{user_text}**\n🇷🇺 {translation}")
         return
     
     # Обратный поиск (русский -> армянский)
     for armenian, russian in VOCABULARY.items():
-        if russian.lower() == text.lower():
-            bot.send_message(message.chat.id, f"🇷🇺 **{text}**\n🇦🇲 {armenian}", parse_mode="Markdown")
+        if russian.lower() == user_text.lower():
+            bot.reply_to(message, f"🇷🇺 **{user_text}**\n🇦🇲 {armenian}")
             return
     
-    # Проверка команды остановки тренировки
-    if text.lower() in ['стоп', 'stop', 'закончить', 'хватит'] and user_id in alphabet_training_mode:
-        stop_alphabet_training(message)
-        return
-    
-    # Если не команда и не распознано
-    if not text.startswith('/'):
-        keyboard = InlineKeyboardMarkup()
-        keyboard.row(
-            InlineKeyboardButton("🆘 Помощь", callback_data="help"),
-            InlineKeyboardButton("🏠 Главное меню", callback_data="start"),
-            InlineKeyboardButton("⏹️ Стоп тренировку", callback_data="stop_train")
-        )
-        bot.send_message(message.chat.id, 
-                        "🤔 Не понял ваш запрос.\n\nИспользуйте команды:\n/start - Главное меню\n/help - Помощь",
-                        reply_markup=keyboard)
+    # 4. Если ничего не подошло
+    keyboard = InlineKeyboardMarkup()
+    keyboard.row(
+        InlineKeyboardButton("🏠 Главное меню", callback_data="start"),
+        InlineKeyboardButton("🆘 Помощь", callback_data="help")
+    )
+    bot.reply_to(message, 
+                "🤔 Не понял ваш запрос.\n\nИспользуйте:\n• /train - для тренировки слов\n• /search - для поиска перевода\n• /start - для главного меню",
+                reply_markup=keyboard)
 
-def handle_alphabet_training(message, text):
+def handle_alphabet_training_response(message, user_text):
     user_id = message.from_user.id
     
     if user_id not in alphabet_training_mode or not alphabet_training_mode[user_id]['active']:
@@ -1319,7 +1328,7 @@ def handle_alphabet_training(message, text):
     alphabet_training_mode[user_id]['total'] += 1
     
     # Проверяем ответ
-    if text in correct_letters:
+    if user_text in correct_letters:
         # Правильный ответ
         alphabet_training_mode[user_id]['score'] += 1
         
@@ -1329,19 +1338,7 @@ def handle_alphabet_training(message, text):
         user_progress[user_id]['alphabet'] = user_progress[user_id].get('alphabet', 0) + 1
         user_progress[user_id]['train_score'] = user_progress[user_id].get('train_score', 0) + 1
         
-        response = f"""
-✅ **ПРАВИЛЬНО!**
-
-🔤 Ваш ответ: **{text}**
-📝 Буква: {current_letter}
-
-📊 **Текущие результаты:**
-✅ Правильно: {alphabet_training_mode[user_id]['score']} из {alphabet_training_mode[user_id]['total']}
-
-📝 **Следующая буква:**
-        """
-        
-        bot.send_message(message.chat.id, response, parse_mode="Markdown")
+        bot.reply_to(message, f"✅ Правильно!\n\nБуква: {current_letter}\nВаш ответ: **{user_text}**")
         
         # Даем следующую букву через 1 секунду
         import time
@@ -1351,20 +1348,7 @@ def handle_alphabet_training(message, text):
     else:
         # Неправильный ответ
         correct_variants = " или ".join(correct_letters)
-        response = f"""
-❌ **НЕПРАВИЛЬНО**
-
-🔤 Ваш ответ: **{text}**
-✅ Правильные варианты: **{correct_variants}**
-📝 Буква: {current_letter}
-
-📊 **Текущие результаты:**
-✅ Правильно: {alphabet_training_mode[user_id]['score']} из {alphabet_training_mode[user_id]['total']}
-
-📝 **Следующая буква:**
-        """
-        
-        bot.send_message(message.chat.id, response, parse_mode="Markdown")
+        bot.reply_to(message, f"❌ Неверно.\n\nБуква: {current_letter}\nПравильный ответ: **{correct_variants}**\nВаш ответ: {user_text}")
         
         # Даем следующую букву через 2 секунды
         import time
