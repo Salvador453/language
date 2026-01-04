@@ -1,43 +1,34 @@
+import os
+import random
+import threading
+from datetime import datetime
+
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
-from datetime import datetime
-import json
-import random
-import os
-from flask import Flask, request, jsonify
-import threading
-
-# ====== мини-вебсервер для Render ======
-from flask import Flask
-import threading
-import os
-
-app = Flask(__name__)
-
-@app.route("/")
-def home():
-    return "Bot is alive!"
-
-def run_flask():
-    port = int(os.environ.get("PORT", 5000))
-    # host 0.0.0.0 обязателен, иначе Render не увидит порт
-    app.run(host="0.0.0.0", port=port)
-
-threading.Thread(target=run_flask, daemon=True).start()
-# =======================================
+from flask import Flask, request
 
 # ================== НАСТРОЙКИ ==================
 
 TOKEN = "8235493571:AAEWmFW3zyWw9i4j_JdRaj_4lRK_3mW9XbE"
-
 bot = telebot.TeleBot(TOKEN)
 
-# на всякий случай выпиливаем вебхук, чтобы не ловить 409
-try:
-    bot.remove_webhook()
-except Exception as e:
-    print("Ошибка при удалении webhook:", e)
-    
+app = Flask(__name__)
+
+# ================== FLASK ==================
+
+@app.route("/")
+def home():
+    return "Bot is alive!", 200
+
+
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    json_str = request.get_data().decode("UTF-8")
+    update = telebot.types.Update.de_json(json_str)
+    bot.process_new_updates([update])
+    return "OK", 200
+
+
 # ====== АРМЯНСКИЙ АЛФАВИТ ======
 ARMENIAN_ALPHABET = {
     'Ա ա': 'А а [a]',
@@ -48,7 +39,7 @@ ARMENIAN_ALPHABET = {
     'Զ զ': 'З з [z]',
     'Է է': 'Э э [e]',
     'Ը ը': 'Ы ы [ə]',
-    'Թ թ': 'Т\' т\' [tʰ]',
+    'Թ թ': 'Тʼ тʼ [tʰ]',
     'Ժ ժ': 'Ж ж [ʒ]',
     'Ի ի': 'И и [i]',
     'Լ լ': 'Л л [l]',
@@ -64,7 +55,7 @@ ARMENIAN_ALPHABET = {
     'Ն ն': 'Н н [n]',
     'Շ շ': 'Ш ш [ʃ]',
     'Ո ո': 'Во во [vo/o]',
-    'Չ չ': 'Ч\' ч\' [tʃʰ]',
+    'Չ չ': 'Чʼ чʼ [tʃʰ]',
     'Պ պ': 'П п [p]',
     'Ջ ջ': 'Дж дж [dʒ]',
     'Ռ ռ': 'Рр рр [r]',
@@ -72,10 +63,9 @@ ARMENIAN_ALPHABET = {
     'Վ վ': 'В в [v]',
     'Տ տ': 'Т т [t]',
     'Ր ր': 'Р р [ɾ]',
-    'Ց ց': 'Ц\' ц\' [tsʰ]',
-    'Ւ ւ': 'В в [v/w]',
-    'Փ փ': 'П\' п\' [pʰ]',
-    'Ք ք': 'К\' к\' [kʰ]',
+    'Ց ց': 'Цʼ цʼ [tsʰ]',
+    'Փ փ': 'Пʼ пʼ [pʰ]',
+    'Ք ք': 'Кʼ кʼ [kʰ]',
     'Օ օ': 'О о [o]',
     'Ֆ ֆ': 'Ф ф [f]'
 }
@@ -923,7 +913,7 @@ RULES = {
     """
 }
 
-# Хранилище прогресса пользователей
+# ====== ПРОГРЕСС ======
 user_progress = {}
 
 # ====== КОМАНДЫ БОТА ======
@@ -1197,40 +1187,17 @@ def handle_message(message):
                         "🤔 Не понял ваш запрос. Используйте команды или кнопки ниже.",
                         reply_markup=keyboard)
 
-# ====== ЗАПУСК СЕРВЕРА ======
-def run_flask():
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+
+# ================== ЗАПУСК ==================
 
 if __name__ == "__main__":
-    print(f"🚀 Запуск Armenian Learning Bot...")
-    print(f"📚 Словарь: {len(VOCABULARY)} слов")
-    print(f"🔤 Алфавит: {len(ARMENIAN_ALPHABET)} букв")
-    
-    # Если на Render, используем вебхук
+    bot.remove_webhook()
+
     if os.environ.get("RENDER"):
-        print("🌐 Режим: Render (Webhook)")
-        
-        # Запускаем Flask в отдельном потоке
-        flask_thread = threading.Thread(target=run_flask, daemon=True)
-        flask_thread.start()
-        
-        import time
-        time.sleep(2)
-        
-        # Настраиваем вебхук
-        webhook_url = f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME')}/webhook"
-        print(f"🔗 Настраиваю вебхук: {webhook_url}")
-        bot.remove_webhook()
-        time.sleep(1)
-        bot.set_webhook(url=webhook_url)
-        print("✅ Вебхук установлен")
-        
-        # Держим основной поток активным
-        while True:
-            time.sleep(86400)
+        host = os.environ.get("RENDER_EXTERNAL_HOSTNAME")
+        bot.set_webhook(url=f"https://{host}/webhook")
+
+        port = int(os.environ.get("PORT", 5000))
+        app.run(host="0.0.0.0", port=port)
     else:
-        # Локальный режим (polling)
-        print("💻 Режим: Локальный (Polling)")
-        bot.remove_webhook()
         bot.infinity_polling()
