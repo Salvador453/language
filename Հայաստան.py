@@ -7,43 +7,37 @@ import os
 from flask import Flask, request, jsonify
 import threading
 
-# ====== НАСТРОЙКИ ======
-TOKEN = os.environ.get("8235493571:AAEWmFW3zyWw9i4j_JdRaj_4lRK_3mW9XbE")
-bot = telebot.TeleBot(TOKEN)
+# ====== мини-вебсервер для Render ======
+from flask import Flask
+import threading
+import os
 
-# ====== Flask сервер для Render ======
 app = Flask(__name__)
 
-@app.route('/')
+@app.route("/")
 def home():
-    return "✅ Armenian Learning Bot is running!\nUse /set_webhook to setup Telegram webhook"
+    return "Bot is alive!"
 
-@app.route('/webhook', methods=['POST'])
-def webhook():
-    if request.headers.get('content-type') == 'application/json':
-        json_string = request.get_data().decode('utf-8')
-        update = telebot.types.Update.de_json(json_string)
-        bot.process_new_updates([update])
-        return 'ok', 200
-    else:
-        return 'Bad request', 400
+def run_flask():
+    port = int(os.environ.get("PORT", 5000))
+    # host 0.0.0.0 обязателен, иначе Render не увидит порт
+    app.run(host="0.0.0.0", port=port)
 
-@app.route('/set_webhook')
-def set_webhook():
-    webhook_url = f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME', '')}/webhook"
-    if not webhook_url.startswith("https://"):
-        return "Error: RENDER_EXTERNAL_HOSTNAME not set"
+threading.Thread(target=run_flask, daemon=True).start()
+# =======================================
+
+# ================== НАСТРОЙКИ ==================
+
+TOKEN = "8235493571:AAEWmFW3zyWw9i4j_JdRaj_4lRK_3mW9XbE"
+
+bot = telebot.TeleBot(TOKEN)
+
+# на всякий случай выпиливаем вебхук, чтобы не ловить 409
+try:
+    bot.remove_webhook()
+except Exception as e:
+    print("Ошибка при удалении webhook:", e)
     
-    s = bot.set_webhook(url=webhook_url)
-    if s:
-        return f"✅ Webhook setup successful!\nWebhook URL: {webhook_url}"
-    else:
-        return "❌ Webhook setup failed"
-
-@app.route('/health')
-def health():
-    return jsonify({"status": "healthy", "time": datetime.now().isoformat()})
-
 # ====== АРМЯНСКИЙ АЛФАВИТ ======
 ARMENIAN_ALPHABET = {
     'Ա ա': 'А а [a]',
