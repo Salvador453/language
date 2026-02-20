@@ -37,8 +37,9 @@ USERS_FILE = "attendance_users.json"
 ATTENDANCE_FILE = "attendance.json"
 REPLACEMENTS_FILE = "replacements.json"
 STUDENTS_LIST_FILE = "students.json"
+MARKING_STATE_FILE = "marking_state.json"  # Временное состояние отметок
 
-# ====== РАСПИСАНИЯ (как в оригинале) ======
+# ====== РАСПИСАНИЯ ======
 def create_schedule_bcig():
     return {
         "monday": {
@@ -200,21 +201,16 @@ def save_json(filename, data):
 users = load_json(USERS_FILE, {})  # {user_id: {"group": "...", "role": "...", "fio": "..."}}
 attendance = load_json(ATTENDANCE_FILE, [])  # [{"date": "...", "group": "...", "pair": "...", "fio": "...", "status": "...", "marked_by": ...}]
 replacements = load_json(REPLACEMENTS_FILE, {})  # {"date": {"pair": {"subject": "...", "room": "...", "teacher": "..."}}}
-students_list = load_json(STUDENTS_LIST_FILE, {  # Предзагруженные списки студентов
-    "БЦІГ-25": [
-        "Іванов Іван Іванович",
-        "Петров Петро Петрович",
-        # ... добавьте всех
-    ],
-    "БЦІСТ-25": [
-        "Сидоров Сидір Сидорович",
-        # ... добавьте всех
-    ]
+marking_state = load_json(MARKING_STATE_FILE, {})  # {user_id: {"pair": "...", "marked": {}}}
+students_list = load_json(STUDENTS_LIST_FILE, {
+    "БЦІГ-25": [],
+    "БЦІСТ-25": []
 })
 
 # ====== ПОМОЩНИКИ ======
 def is_starosta(user_id):
-    return user_id == MAIN_STAROSTA_ID or users.get(str(user_id), {}).get("role") == "zamestitel"
+    uid = str(user_id)
+    return int(uid) == MAIN_STAROSTA_ID or users.get(uid, {}).get("role") == "zamestitel"
 
 def get_user_group(user_id):
     return users.get(str(user_id), {}).get("group")
@@ -233,26 +229,22 @@ def get_day_key(d=None):
     days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
     return days[d.weekday()]
 
-def get_current_pair_info(group, day_key, week_type):
-    """Получить инфу о текущей паре с учётом замен"""
-    schedule = SCHEDULE.get(group, {}).get(day_key, {}).get(week_type, {})
+def get_current_schedule(group, day_key, week_type):
+    """Получить расписание с учётом замен"""
+    schedule = SCHEDULE.get(group, {}).get(day_key, {}).get(week_type, {}).copy()
     
-    # Проверяем замены на сегодня
+    # Применяем замены на сегодня
     today_str = date.today().isoformat()
     today_replacements = replacements.get(today_str, {})
     
-    result = {}
-    for pair_num, info in schedule.items():
-        # Если есть замена — используем её
-        if today_replacements.get(pair_num):
-            result[pair_num] = today_replacements[pair_num]
-        else:
-            result[pair_num] = info
+    for pair_num, new_info in today_replacements.items():
+        if pair_num in schedule:
+            schedule[pair_num] = new_info
     
-    return result
+    return schedule
 
-# ====== КОМАНДЫ ======
-@bot.message_handler(commands=["start"])
+# ====== ГЛАВНОЕ МЕНЮ ======
+@bot.message_handler(commands=["start", "menu"])
 def start_cmd(message):
     uid = str(message.from_user.id)
     
@@ -260,8 +252,8 @@ def start_cmd(message):
         # Новый пользователь — выбор группы
         markup = InlineKeyboardMarkup(row_width=1)
         markup.add(
-            InlineKeyboardButton("БЦІГ-25", callback_data="group_БЦІГ-25"),
-            InlineKeyboardButton("БЦІСТ-25 / ТЕ-25", callback_data="group_БЦІСТ-25")
+            InlineKeyboardButton("📘 БЦІГ-25", callback_data="group_БЦІГ-25"),
+            InlineKeyboardButton("📗 БЦІСТ-25 / ТЕ-25", callback_data="group_БЦІСТ-25")
         )
         bot.reply_to(message, "👋 Вітаю! Оберіть вашу групу:", reply_markup=markup)
     else:
@@ -270,33 +262,39 @@ def start_cmd(message):
 def show_main_menu(message):
     uid = str(message.from_user.id)
     user = users.get(uid, {})
-    group = user.get("group", "Невідомо")
-    role = "⭐ Староста" if int(uid) == MAIN_STAROSTA_ID else "👤 Студент"
-    if user.get("role") == "zamestitel":
-        role = "🔄 Заместитель старосты"
+    group = user.get("group", "❓")
+    fio = user.get("fio", "❓")
     
-    text = f"📚 Група: {group}\n👤 Роль: {role}\n\nОберіть дію:"
+    if int(uid) == MAIN_STAROSTA_ID:
+        role = "⭐ Головний староста"
+    elif user.get("role") == "zamestitel":
+        role = "🔄 Заместитель"
+    else:
+        role = "👤 Студент"
+    
+    text = f"📚 <b>Група:</b> {group}\n"
+    text += f"👤 <b>ПІБ:</b> {fio}\n"
+    text += f"🎖 <b>Роль:</b> {role}\n\n"
+    text += "Оберіть дію:"
     
     markup = InlineKeyboardMarkup(row_width=2)
     
     if is_starosta(message.from_user.id):
-        # Меню для старосты/заместителя
         markup.add(
-            InlineKeyboardButton("📝 Відмітити присутність", callback_data="mark_attendance"),
-            InlineKeyboardButton("📊 Статистика групи", callback_data="group_stats"),
-            InlineKeyboardButton("🔄 Заміна пари", callback_data="add_replacement"),
-            InlineKeyboardButton("👥 Список студентів", callback_data="students_list")
+            InlineKeyboardButton("📝 Відмітити", callback_data="menu_mark"),
+            InlineKeyboardButton("📊 Статистика групи", callback_data="menu_groupstats"),
+            InlineKeyboardButton("🔄 Заміна пари", callback_data="menu_replace"),
+            InlineKeyboardButton("👥 Студенти", callback_data="menu_students")
         )
         if int(uid) == MAIN_STAROSTA_ID:
-            markup.add(InlineKeyboardButton("➕ Призначити заместителя", callback_data="set_zamestitel"))
+            markup.add(InlineKeyboardButton("➕ Заместитель", callback_data="menu_setzam"))
     else:
-        # Меню для обычного студента
         markup.add(
-            InlineKeyboardButton("📊 Моя статистика", callback_data="my_stats"),
-            InlineKeyboardButton("📅 Розклад на сьогодні", callback_data="today_schedule")
+            InlineKeyboardButton("📊 Моя статистика", callback_data="menu_mystats"),
+            InlineKeyboardButton("📅 Сьогодні", callback_data="menu_today")
         )
     
-    bot.reply_to(message, text, reply_markup=markup)
+    bot.send_message(message.chat.id, text, reply_markup=markup, parse_mode="HTML")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("group_"))
 def set_group(call):
@@ -311,43 +309,57 @@ def set_group(call):
     }
     save_json(USERS_FILE, users)
     
-    # Предлагаем ввести ФИО для обычных студентов
-    if int(uid) != MAIN_STAROSTA_ID:
-        bot.edit_message_text(
-            "✅ Групу збережено!\n\n"
-            "Для перегляду статистики введіть ваше ПІБ однією командою:\n"
-            "/fio Іванов Іван Іванович",
-            call.message.chat.id,
-            call.message.message_id
-        )
-    else:
-        bot.edit_message_text(
-            "✅ Групу збережено! Ви — головний староста.",
-            call.message.chat.id,
-            call.message.message_id
-        )
+    # Удаляем старое сообщение
+    bot.delete_message(call.message.chat.id, call.message.message_id)
+    
+    if int(uid) == MAIN_STAROSTA_ID:
+        bot.send_message(call.message.chat.id, "✅ Ви — головний староста!")
         show_main_menu(call.message)
+    else:
+        msg = bot.send_message(
+            call.message.chat.id,
+            "✅ Групу збережено!\n\n"
+            "Тепер введіть ваше ПІБ командою:\n"
+            "<code>/fio Прізвище Ім'я По-батькові</code>\n\n"
+            "Приклад: <code>/fio Шевченко Тарас Григорович</code>",
+            parse_mode="HTML"
+        )
 
+# ====== ФИО ======
 @bot.message_handler(commands=["fio"])
 def set_fio_cmd(message):
     uid = str(message.from_user.id)
+    
     if uid not in users:
-        bot.reply_to(message, "Спочатку оберіть групу: /start")
+        bot.reply_to(message, "❌ Спочатку оберіть групу: /start")
         return
     
     parts = message.text.split(maxsplit=1)
     if len(parts) < 2:
-        bot.reply_to(message, "Формат: /fio Іванов Іван Іванович")
+        bot.reply_to(message, 
+            "❌ Формат: <code>/fio Прізвище Ім'я По-батькові</code>\n"
+            "Приклад: <code>/fio Шевченко Тарас Григорович</code>",
+            parse_mode="HTML"
+        )
         return
     
     fio = parts[1].strip()
+    
+    # Проверяем, что ФИО не слишком короткое
+    if len(fio) < 5:
+        bot.reply_to(message, "❌ ПІБ занадто короткий. Введіть повністю.")
+        return
+    
     users[uid]["fio"] = fio
     save_json(USERS_FILE, users)
     
-    bot.reply_to(f"✅ ПІБ збережено: {fio}\nТепер ви можете дивитися свою статистику!")
+    bot.reply_to(message, f"✅ ПІБ збережено: <b>{fio}</b>", parse_mode="HTML")
+    
+    # Показываем меню
+    show_main_menu(message)
 
-# ====== ОТМЕТКА ПРИСУТСТВИЯ (для старосты) ======
-@bot.callback_query_handler(func=lambda call: call.data == "mark_attendance")
+# ====== ОТМЕТКА ПРИСУТСТВИЯ ======
+@bot.callback_query_handler(func=lambda call: call.data == "menu_mark")
 def start_marking(call):
     if not is_starosta(call.from_user.id):
         bot.answer_callback_query(call.id, "❌ Немає доступу!")
@@ -356,21 +368,30 @@ def start_marking(call):
     uid = str(call.from_user.id)
     group = users[uid]["group"]
     
-    # Определяем текущую пару
     day_key = get_day_key()
     week_type = get_week_type()
-    schedule = get_current_pair_info(group, day_key, week_type)
+    schedule = get_current_schedule(group, day_key, week_type)
     
     if not schedule:
         bot.edit_message_text("📭 Сьогодні пар немає!", call.message.chat.id, call.message.message_id)
         return
     
-    # Показываем список пар на сегодня
     markup = InlineKeyboardMarkup(row_width=1)
-    for pair_num in sorted(schedule.keys(), key=lambda x: int(x) if x.isdigit() else 0):
-        info = schedule[pair_num]
-        text = f"{pair_num}) {info['subject']}"
+    
+    # Сортируем: сначала числовые пары, потом org
+    pairs = []
+    for k in schedule.keys():
+        if k == "org":
+            pairs.append((0, "org", "🔸 Організаційна година"))
+        else:
+            pairs.append((int(k), k, f"{k}) {schedule[k]['subject']}"))
+    
+    pairs.sort()
+    
+    for _, pair_num, text in pairs:
         markup.add(InlineKeyboardButton(text, callback_data=f"markpair_{pair_num}"))
+    
+    markup.add(InlineKeyboardButton("◀️ Назад", callback_data="back_menu"))
     
     bot.edit_message_text(
         "📋 Оберіть пару для відмітки:",
@@ -380,89 +401,187 @@ def start_marking(call):
     )
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("markpair_"))
-def select_pair_for_marking(call):
+def select_pair(call):
     pair_num = call.data.split("_")[1]
     uid = str(call.from_user.id)
     group = users[uid]["group"]
     
-    # Получаем список студентов группы
     students = students_list.get(group, [])
     
     if not students:
         bot.edit_message_text(
-            "⚠️ Список студентів порожній! Додайте через /addstudent ПІБ",
+            "⚠️ Список студентів порожній!\n\n"
+            "Додайте студентів командою:\n"
+            "<code>/addstudent Прізвище Ім'я По-батькові</code>",
             call.message.chat.id,
-            call.message.message_id
+            call.message.message_id,
+            parse_mode="HTML"
         )
         return
     
-    # Показываем студентов для отметки
-    show_students_for_marking(call, pair_num, students, 0, {})
+    # Инициализируем состояние отметки
+    marking_state[uid] = {
+        "pair": pair_num,
+        "group": group,
+        "date": date.today().isoformat(),
+        "marked": {}  # {fio: "present"/"absent"}
+    }
+    save_json(MARKING_STATE_FILE, marking_state)
+    
+    show_marking_page(call, 0)
 
-def show_students_for_marking(call, pair_num, students, page, marked):
-    """Показываем студентов страницами по 5 человек"""
-    per_page = 5
+def show_marking_page(call, page):
+    uid = str(call.from_user.id)
+    state = marking_state.get(uid, {})
+    students = students_list.get(state.get("group"), [])
+    marked = state.get("marked", {})
+    pair = state.get("pair", "?")
+    
+    per_page = 6
     start = page * per_page
     end = min(start + per_page, len(students))
+    total_pages = (len(students) + per_page - 1) // per_page
     
-    text = f"📝 Відмітка присутності — пара {pair_num}\n"
-    text += f"Сторінка {page + 1}/{(len(students) + per_page - 1) // per_page}\n\n"
+    # Формируем текст
+    text = f"📝 <b>Відмітка присутності</b>\n"
+    text += f"📚 Пара: <b>{pair}</b>\n"
+    text += f"📅 {date.today().strftime('%d.%m.%Y')}\n"
+    text += f"👥 Сторінка {page+1}/{total_pages}\n\n"
     
-    markup = InlineKeyboardMarkup(row_width=2)
+    # Считаем статистику
+    present_count = sum(1 for v in marked.values() if v == "present")
+    absent_count = sum(1 for v in marked.values() if v == "absent")
+    total_marked = present_count + absent_count
+    
+    text += f"✅ Присутні: {present_count} | ❌ Відсутні: {absent_count}\n"
+    text += f"📊 Всього відмічено: {total_marked}/{len(students)}\n\n"
+    
+    markup = InlineKeyboardMarkup(row_width=3)
     
     for i in range(start, end):
         student = students[i]
-        status = marked.get(student, "❓")
-        text += f"{i+1}. {student} — {status}\n"
+        status = marked.get(student)
         
-        # Кнопки для отметки
-        markup.add(
-            InlineKeyboardButton(f"✅ {student[:20]}", callback_data=f"status_{pair_num}_{i}_present_{page}"),
-            InlineKeyboardButton(f"❌ {student[:20]}", callback_data=f"status_{pair_num}_{i}_absent_{page}")
+        if status == "present":
+            emoji = "✅"
+            btn_text = f"{emoji} {student[:15]}"
+        elif status == "absent":
+            emoji = "❌"
+            btn_text = f"{emoji} {student[:15]}"
+        else:
+            emoji = "⚪"
+            btn_text = f"{emoji} {student[:15]}"
+        
+        # Кнопки: Присутній | Студент | Відсутній
+        markup.row(
+            InlineKeyboardButton("✅", callback_data=f"st_{i}_yes_{page}"),
+            InlineKeyboardButton(btn_text, callback_data=f"st_{i}_info_{page}"),
+            InlineKeyboardButton("❌", callback_data=f"st_{i}_no_{page}")
         )
     
     # Навигация
-    nav_buttons = []
+    nav = []
     if page > 0:
-        nav_buttons.append(InlineKeyboardButton("⬅️ Назад", callback_data=f"markpage_{pair_num}_{page-1}"))
+        nav.append(InlineKeyboardButton("⬅️", callback_data=f"page_{page-1}"))
+    nav.append(InlineKeyboardButton(f"{page+1}/{total_pages}", callback_data="page_info"))
     if end < len(students):
-        nav_buttons.append(InlineKeyboardButton("Вперед ➡️", callback_data=f"markpage_{pair_num}_{page+1}"))
+        nav.append(InlineKeyboardButton("➡️", callback_data=f"page_{page+1}"))
+    markup.row(*nav)
     
-    if nav_buttons:
-        markup.row(*nav_buttons)
-    
-    # Сохранить
-    markup.add(InlineKeyboardButton("💾 Зберегти відмітки", callback_data=f"savemarks_{pair_num}"))
+    # Сохранить и назад
+    markup.row(
+        InlineKeyboardButton("💾 Зберегти всі відмітки", callback_data="save_all"),
+        InlineKeyboardButton("◀️ Меню", callback_data="back_menu")
+    )
     
     bot.edit_message_text(
         text,
         call.message.chat.id,
         call.message.message_id,
-        reply_markup=markup
+        reply_markup=markup,
+        parse_mode="HTML"
     )
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith("status_"))
-def set_student_status(call):
+@bot.callback_query_handler(func=lambda call: call.data.startswith("st_"))
+def mark_student(call):
     parts = call.data.split("_")
-    pair_num, idx, status, page = parts[1], int(parts[2]), parts[3], int(parts[4])
+    idx, action, page = int(parts[1]), parts[2], int(parts[3])
     
     uid = str(call.from_user.id)
-    group = users[uid]["group"]
-    students = students_list.get(group, [])
+    state = marking_state.get(uid, {})
+    students = students_list.get(state.get("group"), [])
+    
+    if idx >= len(students):
+        bot.answer_callback_query(call.id, "Помилка!")
+        return
+    
     student = students[idx]
     
-    # Сохраняем во временное хранилище (в памяти бота)
-    # Для простоты используем callback_data как хранилище, 
-    # но лучше бы использовать Redis или словарь в памяти
+    if action == "yes":
+        state["marked"][student] = "present"
+        bot.answer_callback_query(call.id, f"✅ {student} — Присутній")
+    elif action == "no":
+        state["marked"][student] = "absent"
+        bot.answer_callback_query(call.id, f"❌ {student} — Відсутній")
+    else:
+        bot.answer_callback_query(call.id, student)
+        return
     
-    # Перезагружаем страницу с отметкой
-    bot.answer_callback_query(call.id, f"{student} — {'Присутній' if status == 'present' else 'Відсутній'}")
-    
-    # Здесь нужно хранить состояние — для простоты сделаем через глобальный словарь
-    # Но в продакшене лучше использовать Redis или другой способ
+    save_json(MARKING_STATE_FILE, marking_state)
+    show_marking_page(call, page)
 
-# ====== СТАТИСТИКА (для студентов) ======
-@bot.callback_query_handler(func=lambda call: call.data == "my_stats")
+@bot.callback_query_handler(func=lambda call: call.data.startswith("page_"))
+def change_page(call):
+    if call.data == "page_info":
+        bot.answer_callback_query(call.id, "Поточна сторінка")
+        return
+    
+    page = int(call.data.split("_")[1])
+    show_marking_page(call, page)
+
+@bot.callback_query_handler(func=lambda call: call.data == "save_all")
+def save_attendance(call):
+    uid = str(call.from_user.id)
+    state = marking_state.get(uid, {})
+    
+    if not state or not state.get("marked"):
+        bot.answer_callback_query(call.id, "Немає відміток для збереження!")
+        return
+    
+    # Сохраняем все отметки
+    saved_count = 0
+    for fio, status in state["marked"].items():
+        record = {
+            "date": state["date"],
+            "group": state["group"],
+            "pair": state["pair"],
+            "fio": fio,
+            "status": status,
+            "marked_by": uid,
+            "timestamp": datetime.now().isoformat()
+        }
+        attendance.append(record)
+        saved_count += 1
+    
+    save_json(ATTENDANCE_FILE, attendance)
+    
+    # Очищаем состояние
+    marking_state.pop(uid, None)
+    save_json(MARKING_STATE_FILE, marking_state)
+    
+    bot.edit_message_text(
+        f"✅ <b>Збережено!</b>\n\n"
+        f"📅 Дата: {state['date']}\n"
+        f"📚 Пара: {state['pair']}\n"
+        f"👥 Відмічено: {saved_count} студентів\n\n"
+        f"Для перегляду статистики використовуйте меню.",
+        call.message.chat.id,
+        call.message.message_id,
+        parse_mode="HTML"
+    )
+
+# ====== СТАТИСТИКА СТУДЕНТА ======
+@bot.callback_query_handler(func=lambda call: call.data == "menu_mystats")
 def show_my_stats(call):
     uid = str(call.from_user.id)
     user = users.get(uid, {})
@@ -471,84 +590,109 @@ def show_my_stats(call):
     
     if not fio:
         bot.edit_message_text(
-            "⚠️ Спочатку введіть ПІБ: /fio Іванов Іван Іванович",
+            "⚠️ Спочатку введіть ПІБ командою:\n"
+            "<code>/fio Прізвище Ім'я По-батькові</code>",
             call.message.chat.id,
-            call.message.message_id
+            call.message.message_id,
+            parse_mode="HTML"
         )
         return
     
-    # Фильтруем записи по ФИО
-    my_attendance = [a for a in attendance if a["fio"] == fio and a["group"] == group]
+    # Фильтруем по ФИО и группе
+    my_records = [a for a in attendance if a["fio"] == fio and a["group"] == group]
     
-    if not my_attendance:
+    if not my_records:
         bot.edit_message_text(
-            "📭 Поки що немає записів про вашу присутність.",
+            "📭 Поки що немає записів про вашу присутність.\n\n"
+            "Статистика з'явиться після першої відмітки старостою.",
             call.message.chat.id,
             call.message.message_id
         )
         return
     
     # Считаем статистику
-    total = len(my_attendance)
-    present = len([a for a in my_attendance if a["status"] == "present"])
+    total = len(my_records)
+    present = len([r for r in my_records if r["status"] == "present"])
     absent = total - present
-    percentage = (present / total * 100) if total > 0 else 0
+    percent = (present / total * 100) if total > 0 else 0
     
-    # За периоды
+    # По периодам
     today = date.today()
     week_ago = today - timedelta(days=7)
     month_ago = today - timedelta(days=30)
     
-    week_total = len([a for a in my_attendance if date.fromisoformat(a["date"]) >= week_ago])
-    week_present = len([a for a in my_attendance if date.fromisoformat(a["date"]) >= week_ago and a["status"] == "present"])
+    week_records = [r for r in my_records if date.fromisoformat(r["date"]) >= week_ago]
+    week_present = len([r for r in week_records if r["status"] == "present"])
     
-    month_total = len([a for a in my_attendance if date.fromisoformat(a["date"]) >= month_ago])
-    month_present = len([a for a in my_attendance if date.fromisoformat(a["date"]) >= month_ago and a["status"] == "present"])
+    month_records = [r for r in my_records if date.fromisoformat(r["date"]) >= month_ago]
+    month_present = len([r for r in month_records if r["status"] == "present"])
     
-    text = f"📊 Статистика відвідування для {fio}\n\n"
-    text += f"📅 За весь час: {present}/{total} ({percentage:.1f}%)\n"
-    text += f"📆 За місяць: {month_present}/{month_total}\n"
-    text += f"🗓️ За тиждень: {week_present}/{week_total}\n\n"
+    text = f"📊 <b>Статистика відвідування</b>\n"
+    text += f"👤 <b>{fio}</b>\n"
+    text += f"📚 {group}\n\n"
     
-    # Последние 5 записей
-    text += "📝 Останні записи:\n"
-    for a in sorted(my_attendance, key=lambda x: x["date"], reverse=True)[:5]:
-        status_emoji = "✅" if a["status"] == "present" else "❌"
-        text += f"{a['date']}: {a['pair']} — {status_emoji}\n"
+    text += f"<b>📅 За весь час:</b>\n"
+    text += f"  ✅ Присутній: {present}/{total} ({percent:.1f}%)\n"
+    text += f"  ❌ Відсутній: {absent}/{total}\n\n"
     
-    bot.edit_message_text(text, call.message.chat.id, call.message.message_id)
+    text += f"<b>📆 За місяць:</b> {month_present}/{len(month_records)}\n"
+    text += f"<b>🗓️ За тиждень:</b> {week_present}/{len(week_records)}\n\n"
+    
+    # Последние записи
+    text += "<b>📝 Останні 5 записів:</b>\n"
+    recent = sorted(my_records, key=lambda x: x["date"], reverse=True)[:5]
+    for r in recent:
+        emoji = "✅" if r["status"] == "present" else "❌"
+        d = date.fromisoformat(r["date"]).strftime("%d.%m")
+        text += f"{emoji} {d} — {r['pair']}\n"
+    
+    markup = InlineKeyboardMarkup()
+    markup.add(InlineKeyboardButton("◀️ Назад", callback_data="back_menu"))
+    
+    bot.edit_message_text(text, call.message.chat.id, call.message.message_id, 
+                         reply_markup=markup, parse_mode="HTML")
 
-# ====== ЗАМЕНЫ ПАР (для старосты) ======
-@bot.callback_query_handler(func=lambda call: call.data == "add_replacement")
-def start_replacement(call):
+# ====== ЗАМЕНЫ ======
+@bot.callback_query_handler(func=lambda call: call.data == "menu_replace")
+def show_replace_menu(call):
     if not is_starosta(call.from_user.id):
         return
     
     bot.edit_message_text(
-        "🔄 Введіть заміну у форматі:\n"
-        "/replace <номер пари> <предмет> ; <аудиторія> ; <викладач>\n\n"
-        "Приклад:\n"
-        "/replace 3 Фізика ; 129 ; Гуленко І.А.",
+        "🔄 <b>Заміна пари</b>\n\n"
+        "Введіть команду:\n"
+        "<code>/replace НомерПари Предмет ; Аудиторія ; Викладач</code>\n\n"
+        "<b>Приклади:</b>\n"
+        "<code>/replace 3 Фізика ; 129 ; Гуленко І.А.</code>\n"
+        "<code>/replace org Історія ; 114 ; Мелещук Ю.Л.</code>\n\n"
+        "Щоб скасувати заміну:\n"
+        "<code>/cancelreplace 3</code>",
         call.message.chat.id,
-        call.message.message_id
+        call.message.message_id,
+        parse_mode="HTML"
     )
 
 @bot.message_handler(commands=["replace"])
-def add_replacement_cmd(message):
+def add_replace_cmd(message):
     if not is_starosta(message.from_user.id):
         return
     
     parts = message.text.split(maxsplit=1)
     if len(parts) < 2:
-        bot.reply_to(message, "Формат: /replace 3 Фізика ; 129 ; Гуленко І.А.")
+        bot.reply_to(message, "❌ Формат: /replace 3 Фізика ; 129 ; Гуленко І.А.")
         return
     
-    rest = parts[1]
+    rest = parts[1].strip()
+    
     try:
-        pair_num, rest = rest.split(maxsplit=1)
-        info_parts = [p.strip() for p in rest.split(";")]
+        # Парсим: номер пары и остальное
+        pair_part = rest.split()[0]
+        info_part = rest[len(pair_part):].strip()
         
-        replacement_info = {
+        # Разбираем по ;
+        info_parts = [p.strip() for p in info_part.split(";")]
+        
+        new_info = {
             "subject": info_parts[0],
             "room": info_parts[1] if len(info_parts) > 1 else "",
             "teacher": info_parts[2] if len(info_parts) > 2 else ""
@@ -558,14 +702,65 @@ def add_replacement_cmd(message):
         if today_str not in replacements:
             replacements[today_str] = {}
         
-        replacements[today_str][pair_num] = replacement_info
+        replacements[today_str][pair_part] = new_info
         save_json(REPLACEMENTS_FILE, replacements)
         
-        bot.reply_to(message, f"✅ Заміну на пару {pair_num} додано на сьогодні!")
+        bot.reply_to(message, 
+            f"✅ <b>Заміну додано!</b>\n\n"
+            f"📅 На сьогодні ({today_str})\n"
+            f"📚 Пара {pair_part}: <b>{new_info['subject']}</b>\n"
+            f"🏫 Ауд. {new_info['room']}, {new_info['teacher']}",
+            parse_mode="HTML"
+        )
     except Exception as e:
         bot.reply_to(message, f"❌ Помилка: {e}")
 
-# ====== УПРАВЛЕНИЕ СТУДЕНТАМИ ======
+@bot.message_handler(commands=["cancelreplace"])
+def cancel_replace_cmd(message):
+    if not is_starosta(message.from_user.id):
+        return
+    
+    parts = message.text.split()
+    if len(parts) < 2:
+        bot.reply_to(message, "❌ Формат: /cancelreplace 3")
+        return
+    
+    pair_num = parts[1]
+    today_str = date.today().isoformat()
+    
+    if today_str in replacements and pair_num in replacements[today_str]:
+        del replacements[today_str][pair_num]
+        save_json(REPLACEMENTS_FILE, replacements)
+        bot.reply_to(message, f"✅ Заміну для пари {pair_num} скасовано!")
+    else:
+        bot.reply_to(message, "❌ Заміни для цієї пари не знайдено.")
+
+# ====== СТУДЕНТЫ ======
+@bot.callback_query_handler(func=lambda call: call.data == "menu_students")
+def show_students_menu(call):
+    if not is_starosta(call.from_user.id):
+        return
+    
+    uid = str(call.from_user.id)
+    group = users[uid]["group"]
+    students = students_list.get(group, [])
+    
+    text = f"👥 <b>Список студентів {group}</b>\n"
+    text += f"Всього: {len(students)} чол.\n\n"
+    
+    for i, s in enumerate(students, 1):
+        text += f"{i}. {s}\n"
+    
+    text += "\n<b>Команди:</b>\n"
+    text += "<code>/addstudent Прізвище Ім'я По-батькові</code>\n"
+    text += "<code>/delstudent Номер</code>"
+    
+    markup = InlineKeyboardMarkup()
+    markup.add(InlineKeyboardButton("◀️ Назад", callback_data="back_menu"))
+    
+    bot.edit_message_text(text, call.message.chat.id, call.message.message_id,
+                         reply_markup=markup, parse_mode="HTML")
+
 @bot.message_handler(commands=["addstudent"])
 def add_student_cmd(message):
     if not is_starosta(message.from_user.id):
@@ -576,7 +771,7 @@ def add_student_cmd(message):
     
     parts = message.text.split(maxsplit=1)
     if len(parts) < 2:
-        bot.reply_to(message, "Формат: /addstudent Іванов Іван Іванович")
+        bot.reply_to(message, "❌ Формат: /addstudent Шевченко Тарас Григорович")
         return
     
     fio = parts[1].strip()
@@ -584,65 +779,98 @@ def add_student_cmd(message):
     if group not in students_list:
         students_list[group] = []
     
-    if fio not in students_list[group]:
-        students_list[group].append(fio)
-        students_list[group].sort()
-        save_json(STUDENTS_LIST_FILE, students_list)
-        bot.reply_to(message, f"✅ {fio} додано до групи {group}")
-    else:
-        bot.reply_to(message, f"⚠️ {fio} вже є в списку")
-
-@bot.callback_query_handler(func=lambda call: call.data == "students_list")
-def show_students(call):
-    if not is_starosta(call.from_user.id):
+    if fio in students_list[group]:
+        bot.reply_to(message, f"⚠️ {fio} вже є в списку!")
         return
     
-    uid = str(call.from_user.id)
+    students_list[group].append(fio)
+    students_list[group].sort()
+    save_json(STUDENTS_LIST_FILE, students_list)
+    
+    bot.reply_to(message, f"✅ <b>{fio}</b> додано до групи {group}!", parse_mode="HTML")
+
+@bot.message_handler(commands=["delstudent"])
+def del_student_cmd(message):
+    if not is_starosta(message.from_user.id):
+        return
+    
+    uid = str(message.from_user.id)
     group = users[uid]["group"]
-    students = students_list.get(group, [])
     
-    text = f"👥 Список студентів {group} ({len(students)} чол.):\n\n"
-    for i, s in enumerate(students, 1):
-        text += f"{i}. {s}\n"
+    parts = message.text.split()
+    if len(parts) < 2:
+        bot.reply_to(message, "❌ Формат: /delstudent 5 (номер у списку)")
+        return
     
-    text += "\nДодати: /addstudent ПІБ"
-    bot.edit_message_text(text, call.message.chat.id, call.message.message_id)
+    try:
+        idx = int(parts[1]) - 1
+        students = students_list.get(group, [])
+        
+        if 0 <= idx < len(students):
+            removed = students.pop(idx)
+            save_json(STUDENTS_LIST_FILE, students_list)
+            bot.reply_to(message, f"✅ <b>{removed}</b> видалено зі списку!", parse_mode="HTML")
+        else:
+            bot.reply_to(message, "❌ Невірний номер!")
+    except ValueError:
+        bot.reply_to(message, "❌ Введіть число!")
 
 # ====== ЗАМЕСТИТЕЛЬ ======
-@bot.callback_query_handler(func=lambda call: call.data == "set_zamestitel")
-def set_zamestitel_start(call):
+@bot.callback_query_handler(func=lambda call: call.data == "menu_setzam")
+def set_zam_start(call):
     if call.from_user.id != MAIN_STAROSTA_ID:
         bot.answer_callback_query(call.id, "Тільки головний староста!")
         return
     
     bot.edit_message_text(
-        "➕ Введіть ID заместителя:\n/setzam <ID Telegram>",
+        "➕ <b>Призначення заместителя</b>\n\n"
+        "Введіть ID користувача:\n"
+        "<code>/setzam 123456789</code>\n\n"
+        "ID можна дізнатися через бота @userinfobot",
         call.message.chat.id,
-        call.message.message_id
+        call.message.message_id,
+        parse_mode="HTML"
     )
 
 @bot.message_handler(commands=["setzam"])
-def set_zamestitel_cmd(message):
+def set_zam_cmd(message):
     if message.from_user.id != MAIN_STAROSTA_ID:
         return
     
     parts = message.text.split()
     if len(parts) < 2:
-        bot.reply_to(message, "Формат: /setzam 123456789")
+        bot.reply_to(message, "❌ Формат: /setzam 123456789")
         return
     
     zam_id = parts[1]
     
-    if zam_id in users:
-        users[zam_id]["role"] = "zamestitel"
-        save_json(USERS_FILE, users)
-        bot.reply_to(message, f"✅ Користувач {zam_id} призначений заместителем!")
-        try:
-            bot.send_message(int(zam_id), "🎉 Вас призначено заместителем старости!")
-        except:
-            pass
-    else:
-        bot.reply_to(message, "❌ Користувач ще не запускав бота. Нехай напише /start")
+    if zam_id not in users:
+        bot.reply_to(message, 
+            "❌ Користувач ще не запускав бота!\n\n"
+            "Нехай спочатку напише мені /start і обере групу."
+        )
+        return
+    
+    users[zam_id]["role"] = "zamestitel"
+    save_json(USERS_FILE, users)
+    
+    # Уведомляем заместителя
+    try:
+        bot.send_message(int(zam_id), 
+            "🎉 <b>Вітаємо!</b>\n\n"
+            "Вас призначено заместителем старости!\n"
+            "Тепер ви можете відмічати присутність групи.",
+            parse_mode="HTML"
+        )
+    except:
+        pass
+    
+    bot.reply_to(message, f"✅ Користувач {zam_id} призначений заместителем!")
+
+# ====== НАЗАД В МЕНЮ ======
+@bot.callback_query_handler(func=lambda call: call.data == "back_menu")
+def back_to_menu(call):
+    show_main_menu(call.message)
 
 # ====== СТАРТ ======
 print("🤖 Бот журнала посещаемости запущен!")
