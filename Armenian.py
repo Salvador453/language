@@ -339,12 +339,13 @@ def send_welcome(message):
             reply_markup=markup
         )
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith("reg_group_"))
-def reg_group_callback(call):
-    group = call.data.split("_")[2]
-    uid = str(call.from_user.id)
-    users[uid]["group"] = group
-    save_users()
+@bot.callback_query_handler(func=lambda call: 
+    call.data.startswith("mark_group_") or 
+    call.data.startswith("mark_date_") or 
+    call.data == "mark_cancel" or 
+    call.data == "mark_date_manual")
+def mark_callback(call):
+    # ... остальной код без изменений
     
     # Теперь запрашиваем ФИО
     bot.edit_message_text(
