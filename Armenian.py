@@ -590,27 +590,31 @@ def mark_start(message):
     bot.reply_to(message, "Оберіть групу для відмітки:", reply_markup=markup)
 
 # ================== ОБРАБОТЧИКИ ДЛЯ ОТМЕТКИ ==================
+# ОДИН ОБРАБОТЧИК для всех mark_ callback'ов
 @bot.callback_query_handler(func=lambda call: call.data.startswith("mark_"))
-def mark_callback(call):
-    """Обработчик для отметки посещаемости (mark_)"""
+def mark_callback_handler(call):
+    """Единый обработчик для всех mark_ callback'ов"""
     admin_id = call.from_user.id
     state = mark_states.get(admin_id)
-    if not state:
-        bot.answer_callback_query(call.id, "Спочатку почніть /mark")
-        return
     
+    # Обработка отмены (работает всегда)
     if call.data == "mark_cancel":
-        del mark_states[admin_id]
+        if admin_id in mark_states:
+            del mark_states[admin_id]
         bot.edit_message_text("❌ Відміну скасовано.", call.message.chat.id, call.message.message_id)
         return
     
+    # Обработка выбора группы
     if call.data.startswith("mark_group_"):
+        if not state:
+            bot.answer_callback_query(call.id, "Спочатку почніть /mark")
+            return
+            
         state.group = call.data.split("_")[2]
         state.step = 1
         # Шаг 2: выбор даты
         markup = InlineKeyboardMarkup(row_width=3)
         today = date.today()
-        # Предлагаем сегодня, вчера, завтра и ручной ввод
         buttons = [
             InlineKeyboardButton("Сьогодні", callback_data=f"mark_date_{today.isoformat()}"),
             InlineKeyboardButton("Вчора", callback_data=f"mark_date_{(today - timedelta(days=1)).isoformat()}"),
@@ -625,16 +629,21 @@ def mark_callback(call):
             call.message.message_id,
             reply_markup=markup
         )
+        return
     
-    elif call.data.startswith("mark_date_"):
+    # Обработка выбора даты
+    if call.data.startswith("mark_date_"):
+        if not state:
+            bot.answer_callback_query(call.id, "Спочатку почніть /mark")
+            return
+            
         if call.data == "mark_date_manual":
-            # Переходим к ручному вводу даты
             bot.edit_message_text(
                 "Введіть дату у форматі РРРР-ММ-ДД (наприклад 2025-03-20):",
                 call.message.chat.id,
                 call.message.message_id
             )
-            state.step = 2  # ожидаем ввод даты
+            state.step = 2
             return
         else:
             date_str = call.data.split("_")[2]
@@ -642,19 +651,82 @@ def mark_callback(call):
             state.step = 2
             # Переходим к выбору пары
             choose_pair(call.message.chat.id, admin_id, call.message.message_id)
+            return
+    
+    # Обработка выбора пары
+    if call.data.startswith("mark_pair_"):
+        if not state:
+            bot.answer_callback_query(call.id, "Спочатку почніть /mark")
+            return
+            
+        pair_num = call.data.split("_")[2]
+        state.pair_num = pair_num
+        
+        # Получаем предмет
+        day_key = get_day_key(state.date)
+        week_type = get_week_type(state.date)
+        group_schedule = schedule[state.group].get(day_key, {}).get(week_type, {})
+        date_str = state.date.isoformat()
+        
+        if date_str in substitutions and state.group in substitutions[date_str] and pair_num in substitutions[date_str][state.group]:
+            subj = substitutions[date_str][state.group][pair_num].get("subject", "Невідомо")
+        else:
+            subj = group_schedule.get(pair_num, {}).get("subject", "Невідомо")
+        state.subject = subj
+        
+        # Получаем список студентов группы
+        group_students = get_students_by_group(state.group)
+        if not group_students:
+            bot.edit_message_text("У цій групі немає студентів. Спочатку додайте через /add_student.", call.message.chat.id, call.message.message_id)
+            del mark_states[admin_id]
+            return
+        
+        state.students = group_students
+        for s in group_students:
+            state.attendance[s["full_name"]] = "absent"
+        
+        state.step = 4
+        state.current_index = 0
+        show_next_student(call.message.chat.id, admin_id, call.message.message_id)
+        return
+    
+    # Обработка отметки студента
+    if call.data.startswith("mark_student_"):
+        if not state:
+            bot.answer_callback_query(call.id, "Спочатку почніть /mark")
+            return
+            
+        action = call.data.split("_")[2]
+        student = state.students[state.current_index]
+        
+        if action == "present":
+            state.attendance[student["full_name"]] = "present"
+            state.current_index += 1
+        elif action == "absent":
+            state.attendance[student["full_name"]] = "absent"
+            state.current_index += 1
+        elif action == "finish":
+            finish_marking(call.message.chat.id, admin_id, call.message.message_id)
+            return
+        
+        # Переходим к следующему студенту или завершаем
+        if state.current_index < len(state.students):
+            show_next_student(call.message.chat.id, admin_id, call.message.message_id)
+        else:
+            finish_marking(call.message.chat.id, admin_id, call.message.message_id)
+        return
 
 def choose_pair(chat_id, admin_id, message_id=None):
     state = mark_states[admin_id]
-    # Получаем список пар на этот день с учётом замен
     day_key = get_day_key(state.date)
     week_type = get_week_type(state.date)
     group_schedule = schedule[state.group].get(day_key, {}).get(week_type, {})
     
-    # Применяем замены, если есть
+    # Применяем замены
     date_str = state.date.isoformat()
     if date_str in substitutions and state.group in substitutions[date_str]:
         for pair_num, sub in substitutions[date_str][state.group].items():
-            group_schedule[pair_num] = sub  # заменяем информацию о паре
+            group_schedule[pair_num] = sub
     
     pairs = []
     for p in sorted(group_schedule.keys(), key=lambda x: int(x) if x.isdigit() else 0):
@@ -689,48 +761,10 @@ def choose_pair(chat_id, admin_id, message_id=None):
         )
     state.step = 3
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith("mark_pair_"))
-def mark_pair_callback(call):
-    admin_id = call.from_user.id
-    state = mark_states.get(admin_id)
-    if not state:
-        return
-    
-    pair_num = call.data.split("_")[2]
-    state.pair_num = pair_num
-    # Получаем предмет (для информации)
-    day_key = get_day_key(state.date)
-    week_type = get_week_type(state.date)
-    group_schedule = schedule[state.group].get(day_key, {}).get(week_type, {})
-    date_str = state.date.isoformat()
-    if date_str in substitutions and state.group in substitutions[date_str] and pair_num in substitutions[date_str][state.group]:
-        subj = substitutions[date_str][state.group][pair_num].get("subject", "Невідомо")
-    else:
-        subj = group_schedule.get(pair_num, {}).get("subject", "Невідомо")
-    state.subject = subj
-    
-    # Получаем список студентов группы
-    group_students = get_students_by_group(state.group)
-    if not group_students:
-        bot.edit_message_text("У цій групі немає студентів. Спочатку додайте через /add_student.", call.message.chat.id, call.message.message_id)
-        del mark_states[admin_id]
-        return
-    
-    state.students = group_students
-    # Инициализируем всех как absent (потом будем отмечать присутствующих)
-    for s in group_students:
-        state.attendance[s["full_name"]] = "absent"
-    
-    state.step = 4
-    state.current_index = 0
-    # Показываем первого студента для отметки
-    show_next_student(call.message.chat.id, admin_id, call.message.message_id)
-
 def show_next_student(chat_id, admin_id, message_id=None):
     state = mark_states[admin_id]
     
     if state.current_index >= len(state.students):
-        # Все обработаны, завершаем
         finish_marking(chat_id, admin_id, message_id)
         return
     
@@ -754,42 +788,12 @@ def show_next_student(chat_id, admin_id, message_id=None):
     else:
         bot.send_message(chat_id, text, reply_markup=markup)
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith("mark_student_"))
-def mark_student_callback(call):
-    admin_id = call.from_user.id
-    state = mark_states.get(admin_id)
-    if not state:
-        return
-    
-    action = call.data.split("_")[2]
-    student = state.students[state.current_index]
-    
-    if action == "present":
-        state.attendance[student["full_name"]] = "present"
-        state.current_index += 1
-    elif action == "absent":
-        state.attendance[student["full_name"]] = "absent"
-        state.current_index += 1
-    elif action == "finish":
-        # Завершаем отметку досрочно
-        finish_marking(call.message.chat.id, admin_id, call.message.message_id)
-        return
-    
-    # Переходим к следующему студенту
-    if state.current_index < len(state.students):
-        show_next_student(call.message.chat.id, admin_id, call.message.message_id)
-    else:
-        finish_marking(call.message.chat.id, admin_id, call.message.message_id)
-
 def finish_marking(chat_id, admin_id, message_id=None):
     state = mark_states[admin_id]
-    # Сохраняем запись в attendance
     date_str = state.date.isoformat()
-    # Для каждого студента создаём запись
+    
     for student in state.students:
         status = state.attendance.get(student["full_name"], "absent")
-        # Проверяем, есть ли уже запись за этот день на эту пару для этого студента
-        # Если есть - обновляем, иначе добавляем
         existing = None
         for idx, rec in enumerate(attendance):
             if (rec.get("date") == date_str and
@@ -812,7 +816,6 @@ def finish_marking(chat_id, admin_id, message_id=None):
             })
     save_attendance()
     
-    # Подводим итог
     total = len(state.students)
     present = sum(1 for v in state.attendance.values() if v == "present")
     absent = total - present
@@ -831,7 +834,6 @@ def finish_marking(chat_id, admin_id, message_id=None):
     else:
         bot.send_message(chat_id, summary)
     
-    # Предлагаем выгрузить в Excel
     markup = InlineKeyboardMarkup()
     markup.add(InlineKeyboardButton("📥 Вивантажити в Excel", callback_data=f"export_{date_str}_{state.group}_{state.pair_num}"))
     bot.send_message(chat_id, "Бажаєте вивантажити журнал?", reply_markup=markup)
@@ -847,12 +849,10 @@ def export_callback(call):
     group = parts[2]
     pair_num = parts[3]
     
-    # Формируем Excel файл
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Відвідування"
     
-    # Заголовки
     ws['A1'] = "Дата"
     ws['B1'] = "Група"
     ws['C1'] = "Пара"
@@ -860,7 +860,6 @@ def export_callback(call):
     ws['E1'] = "Студент"
     ws['F1'] = "Статус"
     
-    # Данные
     row = 2
     for rec in attendance:
         if rec.get("date") == date_str and rec.get("group") == group and rec.get("pair_num") == pair_num:
@@ -872,7 +871,6 @@ def export_callback(call):
             ws[f'F{row}'] = "Присутній" if rec["status"] == "present" else "Відсутній"
             row += 1
     
-    # Сохраняем в BytesIO
     output = BytesIO()
     wb.save(output)
     output.seek(0)
@@ -885,10 +883,8 @@ def export_callback(call):
 def substitution_cmd(message):
     if not is_admin(message.from_user.id):
         return
-    # Запускаем процесс создания замены
     users[str(message.from_user.id)]["subst_state"] = "awaiting_date"
     bot.reply_to(message, "Введіть дату заміни у форматі РРРР-ММ-ДД (наприклад, 2025-03-20) або 'сьогодні'/'завтра':")
-    # Будем хранить временные данные в users
 
 @bot.message_handler(func=lambda msg: users.get(str(msg.from_user.id), {}).get("subst_state") == "awaiting_date")
 def subst_date(message):
@@ -931,7 +927,6 @@ def subst_callback(call):
         group = call.data.split("_")[2]
         users[uid]["subst_group"] = group
         users[uid]["subst_state"] = "awaiting_pair"
-        # Запрашиваем номер пары
         bot.edit_message_text(
             f"Група: {group}\nВведіть номер пари (1-5 або 'org' для організаційної години):",
             call.message.chat.id,
@@ -978,7 +973,6 @@ def subst_teacher(message):
     teacher = message.text.strip()
     users[uid]["subst_teacher"] = teacher if teacher else None
     
-    # Сохраняем замену
     date_str = users[uid]["subst_date"]
     group = users[uid]["subst_group"]
     pair_num = users[uid]["subst_pair"]
@@ -988,7 +982,6 @@ def subst_teacher(message):
     if group not in substitutions[date_str]:
         substitutions[date_str][group] = {}
     
-    # Берём исходные данные из расписания, чтобы не потерять, если какие-то поля не указаны
     day_key = get_day_key(datetime.strptime(date_str, "%Y-%m-%d").date())
     week_type = get_week_type(datetime.strptime(date_str, "%Y-%m-%d").date())
     original = schedule.get(group, {}).get(day_key, {}).get(week_type, {}).get(pair_num, {})
@@ -1003,7 +996,6 @@ def subst_teacher(message):
     
     bot.reply_to(message, f"✅ Заміну для {date_str}, група {group}, пара {pair_num} збережено.")
     
-    # Очищаем состояние
     del users[uid]["subst_state"]
     for k in ["subst_date", "subst_group", "subst_pair", "subst_subject", "subst_room", "subst_teacher"]:
         users[uid].pop(k, None)
@@ -1040,34 +1032,27 @@ def export_cmd(message):
         bot.reply_to(message, "Неправильний формат дати. Використовуйте РРРР-ММ-ДД")
         return
     
-    # Собираем все записи за этот день для этой группы
     day_records = [r for r in attendance if r.get("date") == date_str and r.get("group") == group]
     if not day_records:
         bot.reply_to(message, "За цей день немає записів про відвідування.")
         return
     
-    # Группируем по парам
     pairs = set((r["pair_num"], r.get("subject", "")) for r in day_records)
     
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = f"Відвідування {date_str}"
     
-    # Заголовки: Студент | потом по парам
     students_list = sorted(set(r["student_name"] for r in day_records))
-    # Сортируем пары по номеру
     sorted_pairs = sorted(pairs, key=lambda x: int(x[0]) if x[0] != "org" else 0)
     
-    # Строка заголовков
     ws.cell(row=1, column=1, value="Студент")
     for col, (pair_num, subject) in enumerate(sorted_pairs, start=2):
         ws.cell(row=1, column=col, value=f"{pair_num} ({subject})")
     
-    # Данные по студентам
     for row, student_name in enumerate(students_list, start=2):
         ws.cell(row=row, column=1, value=student_name)
         for col, (pair_num, subject) in enumerate(sorted_pairs, start=2):
-            # Находим статус
             status = next((r["status"] for r in day_records if r["student_name"] == student_name and r["pair_num"] == pair_num), None)
             ws.cell(row=row, column=col, value="Присутній" if status == "present" else ("Відсутній" if status == "absent" else ""))
     
