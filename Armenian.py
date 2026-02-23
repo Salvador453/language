@@ -453,6 +453,8 @@ def admin_help(message):
         "/add_student – додати студента вручну (після команди введеш ФІО та групу)\n"
         "/list_students <група> – список студентів групи\n"
         "/export <група> <дата> – вивантажити журнал за день у Excel\n"
+        "/export_month <група> – вивантажити статистику за останній місяць\n"
+        "/export_halfyear <група> – вивантажити статистику за останнє півріччя\n"
         "/substitution – створити заміну пари на сьогодні (або на дату)\n"
         "/view_substitutions – переглянути активні заміни\n\n"
         "Примітка: для відмітки використовуй /mark, далі вибери групу, дату, пару, і потім відмічай студентів."
@@ -574,6 +576,7 @@ class MarkState:
         self.students = []     # список студентов для отметки
         self.attendance = {}   # словарь {student_id: status} (present/absent)
         self.current_index = 0 # текущий индекс студента для отметки
+        self.marked_pairs = [] # список уже отмеченных пар (номера)
 
 @bot.message_handler(commands=["mark"])
 def mark_start(message):
@@ -590,7 +593,7 @@ def mark_start(message):
     bot.reply_to(message, "Оберіть групу для відмітки:", reply_markup=markup)
 
 # ================== ОБРАБОТЧИКИ ДЛЯ ОТМЕТКИ ==================
-# ОДИН ОБРАБОТЧИК для всех mark_ callback'ов
+# Единый обработчик для всех mark_ callback'ов
 @bot.callback_query_handler(func=lambda call: call.data.startswith("mark_"))
 def mark_callback_handler(call):
     """Единый обработчик для всех mark_ callback'ов"""
@@ -602,6 +605,23 @@ def mark_callback_handler(call):
         if admin_id in mark_states:
             del mark_states[admin_id]
         bot.edit_message_text("❌ Відміну скасовано.", call.message.chat.id, call.message.message_id)
+        return
+    
+    # Обработка действий после завершения пары
+    if call.data in ["mark_another_pair", "mark_finish_day", "mark_finish"]:
+        if not state:
+            bot.answer_callback_query(call.id, "Стан не знайдено")
+            return
+        if call.data == "mark_another_pair":
+            # Вернуться к выбору пары, исключая уже отмеченные
+            choose_pair(call.message.chat.id, admin_id, call.message.message_id, exclude=state.marked_pairs)
+        elif call.data == "mark_finish_day":
+            # Сформировать сводный Excel за день
+            export_day_report(admin_id, call.message.chat.id)
+            del mark_states[admin_id]
+        elif call.data == "mark_finish":
+            del mark_states[admin_id]
+            bot.edit_message_text("✅ Роботу завершено.", call.message.chat.id, call.message.message_id)
         return
     
     # Обработка выбора группы
@@ -650,7 +670,7 @@ def mark_callback_handler(call):
             state.date = datetime.strptime(date_str, "%Y-%m-%d").date()
             state.step = 2
             # Переходим к выбору пары
-            choose_pair(call.message.chat.id, admin_id, call.message.message_id)
+            choose_pair(call.message.chat.id, admin_id, call.message.message_id, exclude=state.marked_pairs)
             return
     
     # Обработка выбора пары
@@ -682,6 +702,8 @@ def mark_callback_handler(call):
             return
         
         state.students = group_students
+        # Сбросить attendance для новой пары
+        state.attendance = {}
         for s in group_students:
             state.attendance[s["full_name"]] = "absent"
         
@@ -697,6 +719,8 @@ def mark_callback_handler(call):
             return
             
         action = call.data.split("_")[2]
+        if state.current_index >= len(state.students):
+            return
         student = state.students[state.current_index]
         
         if action == "present":
@@ -706,17 +730,20 @@ def mark_callback_handler(call):
             state.attendance[student["full_name"]] = "absent"
             state.current_index += 1
         elif action == "finish":
-            finish_marking(call.message.chat.id, admin_id, call.message.message_id)
+            # Завершить отметку текущей пары досрочно
+            finish_marking(call.message.chat.id, admin_id, call.message.message_id, ask_next=True)
             return
         
         # Переходим к следующему студенту или завершаем
         if state.current_index < len(state.students):
             show_next_student(call.message.chat.id, admin_id, call.message.message_id)
         else:
-            finish_marking(call.message.chat.id, admin_id, call.message.message_id)
+            finish_marking(call.message.chat.id, admin_id, call.message.message_id, ask_next=True)
         return
 
-def choose_pair(chat_id, admin_id, message_id=None):
+def choose_pair(chat_id, admin_id, message_id=None, exclude=None):
+    if exclude is None:
+        exclude = []
     state = mark_states[admin_id]
     day_key = get_day_key(state.date)
     week_type = get_week_type(state.date)
@@ -730,6 +757,8 @@ def choose_pair(chat_id, admin_id, message_id=None):
     
     pairs = []
     for p in sorted(group_schedule.keys(), key=lambda x: int(x) if x.isdigit() else 0):
+        if p in exclude:
+            continue
         if p == "org":
             pairs.append(("org", "Організаційна година"))
         else:
@@ -737,8 +766,12 @@ def choose_pair(chat_id, admin_id, message_id=None):
             pairs.append((p, f"{p} пара — {subject}"))
     
     if not pairs:
-        bot.send_message(chat_id, "На цей день немає пар.")
-        del mark_states[admin_id]
+        bot.send_message(chat_id, "Усі пари на цей день вже відмічені.")
+        # Предложить завершить день
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("📥 Завершити день і скачати звіт", callback_data="mark_finish_day"))
+        markup.add(InlineKeyboardButton("❌ Завершити", callback_data="mark_finish"))
+        bot.send_message(chat_id, "Що бажаєте зробити далі?", reply_markup=markup)
         return
     
     markup = InlineKeyboardMarkup(row_width=1)
@@ -765,7 +798,7 @@ def show_next_student(chat_id, admin_id, message_id=None):
     state = mark_states[admin_id]
     
     if state.current_index >= len(state.students):
-        finish_marking(chat_id, admin_id, message_id)
+        finish_marking(chat_id, admin_id, message_id, ask_next=True)
         return
     
     student = state.students[state.current_index]
@@ -788,10 +821,11 @@ def show_next_student(chat_id, admin_id, message_id=None):
     else:
         bot.send_message(chat_id, text, reply_markup=markup)
 
-def finish_marking(chat_id, admin_id, message_id=None):
+def finish_marking(chat_id, admin_id, message_id=None, ask_next=False):
     state = mark_states[admin_id]
     date_str = state.date.isoformat()
     
+    # Сохраняем текущую пару
     for student in state.students:
         status = state.attendance.get(student["full_name"], "absent")
         existing = None
@@ -816,15 +850,18 @@ def finish_marking(chat_id, admin_id, message_id=None):
             })
     save_attendance()
     
+    # Добавляем номер пары в список отмеченных
+    if state.pair_num not in state.marked_pairs:
+        state.marked_pairs.append(state.pair_num)
+    
     total = len(state.students)
     present = sum(1 for v in state.attendance.values() if v == "present")
     absent = total - present
     
     summary = (
-        f"✅ Відмітка завершена!\n"
+        f"✅ Пара {state.pair_num} ({state.subject}) відмічена!\n"
         f"Група: {state.group}\n"
-        f"Дата: {state.date.strftime('%d.%m.%Y')}\n"
-        f"Пара: {state.pair_num} ({state.subject})\n\n"
+        f"Дата: {state.date.strftime('%d.%m.%Y')}\n\n"
         f"Присутні: {present}\n"
         f"Відсутні: {absent}"
     )
@@ -834,49 +871,157 @@ def finish_marking(chat_id, admin_id, message_id=None):
     else:
         bot.send_message(chat_id, summary)
     
-    markup = InlineKeyboardMarkup()
-    markup.add(InlineKeyboardButton("📥 Вивантажити в Excel", callback_data=f"export_{date_str}_{state.group}_{state.pair_num}"))
-    bot.send_message(chat_id, "Бажаєте вивантажити журнал?", reply_markup=markup)
-    
-    del mark_states[admin_id]
+    if ask_next:
+        # Предлагаем дальнейшие действия
+        markup = InlineKeyboardMarkup(row_width=1)
+        markup.add(
+            InlineKeyboardButton("➕ Відмітити іншу пару", callback_data="mark_another_pair"),
+            InlineKeyboardButton("📥 Завершити день і скачати звіт", callback_data="mark_finish_day"),
+            InlineKeyboardButton("❌ Завершити", callback_data="mark_finish")
+        )
+        bot.send_message(chat_id, "Що бажаєте зробити далі?", reply_markup=markup)
+    else:
+        # Завершение без вопросов (например, после выбора "Завершити")
+        if admin_id in mark_states:
+            del mark_states[admin_id]
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith("export_"))
-def export_callback(call):
-    if not is_admin(call.from_user.id):
+def export_day_report(admin_id, chat_id):
+    """Сформировать отчёт за день по всем отмеченным парам (из состояния)"""
+    state = mark_states.get(admin_id)
+    if not state:
+        bot.send_message(chat_id, "Стан не знайдено.")
         return
-    parts = call.data.split("_")
-    date_str = parts[1]
-    group = parts[2]
-    pair_num = parts[3]
+    
+    date_str = state.date.isoformat()
+    group = state.group
+    marked_pairs = state.marked_pairs
+    
+    # Собираем все записи за этот день для этой группы по отмеченным парам
+    day_records = [r for r in attendance if r.get("date") == date_str and r.get("group") == group and r.get("pair_num") in marked_pairs]
+    if not day_records:
+        bot.send_message(chat_id, "За цей день немає відмічених пар.")
+        return
+    
+    # Получаем список уникальных студентов
+    students_list = sorted(set(r["student_name"] for r in day_records))
+    # Получаем список уникальных пар
+    pairs = set((r["pair_num"], r.get("subject", "")) for r in day_records)
+    sorted_pairs = sorted(pairs, key=lambda x: int(x[0]) if x[0] != "org" else 0)
     
     wb = openpyxl.Workbook()
     ws = wb.active
-    ws.title = "Відвідування"
+    ws.title = f"Відвідування {date_str}"
     
-    ws['A1'] = "Дата"
-    ws['B1'] = "Група"
-    ws['C1'] = "Пара"
-    ws['D1'] = "Предмет"
-    ws['E1'] = "Студент"
-    ws['F1'] = "Статус"
+    # Заголовки
+    ws.cell(row=1, column=1, value="Студент")
+    for col, (pair_num, subject) in enumerate(sorted_pairs, start=2):
+        ws.cell(row=1, column=col, value=f"{pair_num} ({subject})")
     
-    row = 2
-    for rec in attendance:
-        if rec.get("date") == date_str and rec.get("group") == group and rec.get("pair_num") == pair_num:
-            ws[f'A{row}'] = rec["date"]
-            ws[f'B{row}'] = rec["group"]
-            ws[f'C{row}'] = rec["pair_num"]
-            ws[f'D{row}'] = rec.get("subject", "")
-            ws[f'E{row}'] = rec["student_name"]
-            ws[f'F{row}'] = "Присутній" if rec["status"] == "present" else "Відсутній"
-            row += 1
+    # Данные
+    for row, student_name in enumerate(students_list, start=2):
+        ws.cell(row=row, column=1, value=student_name)
+        for col, (pair_num, subject) in enumerate(sorted_pairs, start=2):
+            status = next((r["status"] for r in day_records if r["student_name"] == student_name and r["pair_num"] == pair_num), None)
+            ws.cell(row=row, column=col, value="Присутній" if status == "present" else ("Відсутній" if status == "absent" else ""))
     
     output = BytesIO()
     wb.save(output)
     output.seek(0)
     
-    bot.send_document(call.message.chat.id, output, visible_file_name=f"attendance_{date_str}_{group}_pair{pair_num}.xlsx")
-    bot.answer_callback_query(call.id, "Файл надіслано")
+    bot.send_document(chat_id, output, visible_file_name=f"attendance_{group}_{date_str}_summary.xlsx")
+    bot.send_message(chat_id, "✅ Звіт за день сформовано.")
+
+# ================== ЭКСПОРТ ЗА ПЕРИОД ==================
+def generate_period_report(chat_id, group, start_date, end_date, period_name):
+    """Сформировать отчёт за период (месяц/полугодие)"""
+    start_str = start_date.isoformat()
+    end_str = end_date.isoformat()
+    
+    records = [r for r in attendance 
+               if r.get("group") == group 
+               and r.get("date") >= start_str 
+               and r.get("date") <= end_str]
+    
+    if not records:
+        bot.send_message(chat_id, f"За цей період немає записів для групи {group}.")
+        return
+    
+    wb = openpyxl.Workbook()
+    
+    # Лист 1: Сводка по студентам
+    ws_summary = wb.active
+    ws_summary.title = "Зведений"
+    
+    students_list = sorted(set(r["student_name"] for r in records))
+    total_pairs = len(set((r["date"], r["pair_num"]) for r in records))
+    
+    ws_summary.cell(row=1, column=1, value="Студент")
+    ws_summary.cell(row=1, column=2, value="Всього пар")
+    ws_summary.cell(row=1, column=3, value="Присутній")
+    ws_summary.cell(row=1, column=4, value="Відсутній")
+    ws_summary.cell(row=1, column=5, value="% відвідування")
+    
+    for row, student in enumerate(students_list, start=2):
+        student_records = [r for r in records if r["student_name"] == student]
+        present = sum(1 for r in student_records if r["status"] == "present")
+        absent = len(student_records) - present
+        percent = round((present / len(student_records)) * 100, 1) if student_records else 0
+        
+        ws_summary.cell(row=row, column=1, value=student)
+        ws_summary.cell(row=row, column=2, value=len(student_records))
+        ws_summary.cell(row=row, column=3, value=present)
+        ws_summary.cell(row=row, column=4, value=absent)
+        ws_summary.cell(row=row, column=5, value=f"{percent}%")
+    
+    # Лист 2: Детально
+    ws_detail = wb.create_sheet("Детально")
+    ws_detail.cell(row=1, column=1, value="Дата")
+    ws_detail.cell(row=1, column=2, value="Пара")
+    ws_detail.cell(row=1, column=3, value="Предмет")
+    ws_detail.cell(row=1, column=4, value="Студент")
+    ws_detail.cell(row=1, column=5, value="Статус")
+    
+    # Сортируем записи по дате и паре
+    sorted_records = sorted(records, key=lambda r: (r["date"], r["pair_num"]))
+    row = 2
+    for r in sorted_records:
+        ws_detail.cell(row=row, column=1, value=r["date"])
+        ws_detail.cell(row=row, column=2, value=r["pair_num"])
+        ws_detail.cell(row=row, column=3, value=r.get("subject", ""))
+        ws_detail.cell(row=row, column=4, value=r["student_name"])
+        ws_detail.cell(row=row, column=5, value="Присутній" if r["status"] == "present" else "Відсутній")
+        row += 1
+    
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+    bot.send_document(chat_id, output, visible_file_name=f"attendance_{group}_{period_name}.xlsx")
+
+@bot.message_handler(commands=["export_month"])
+def export_month_cmd(message):
+    if not is_admin(message.from_user.id):
+        return
+    parts = message.text.split(maxsplit=1)
+    if len(parts) < 2:
+        bot.reply_to(message, "Формат: /export_month <група>")
+        return
+    group = parts[1]
+    end_date = date.today()
+    start_date = end_date - timedelta(days=30)
+    generate_period_report(message.chat.id, group, start_date, end_date, "month")
+
+@bot.message_handler(commands=["export_halfyear"])
+def export_halfyear_cmd(message):
+    if not is_admin(message.from_user.id):
+        return
+    parts = message.text.split(maxsplit=1)
+    if len(parts) < 2:
+        bot.reply_to(message, "Формат: /export_halfyear <група>")
+        return
+    group = parts[1]
+    end_date = date.today()
+    start_date = end_date - timedelta(days=182)
+    generate_period_report(message.chat.id, group, start_date, end_date, "halfyear")
 
 # ================== ЗАМЕНЫ ПАР ==================
 @bot.message_handler(commands=["substitution"])
@@ -1015,7 +1160,7 @@ def view_substitutions(message):
                 text += f"  {group}, пара {pair_num}: {sub.get('subject')} ({sub.get('room')}) – {sub.get('teacher')}\n"
     bot.reply_to(message, text)
 
-# ================== ВЫГРУЗКА ЗА ДЕНЬ ==================
+# ================== ВЫГРУЗКА ЗА ДЕНЬ (старая команда) ==================
 @bot.message_handler(commands=["export"])
 def export_cmd(message):
     if not is_admin(message.from_user.id):
