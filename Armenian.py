@@ -339,13 +339,17 @@ def send_welcome(message):
             reply_markup=markup
         )
 
-@bot.callback_query_handler(func=lambda call: 
-    call.data.startswith("mark_group_") or 
-    call.data.startswith("mark_date_") or 
-    call.data == "mark_cancel" or 
-    call.data == "mark_date_manual")
-def mark_callback(call):
-    # ... остальной код без изменений
+# ================== ОБРАБОТЧИК РЕГИСТРАЦИИ ==================
+@bot.callback_query_handler(func=lambda call: call.data.startswith("reg_group_"))
+def reg_group_callback(call):
+    """Обработчик выбора группы при регистрации"""
+    uid = str(call.from_user.id)
+    group = call.data.split("_")[2]
+    
+    # Сохраняем выбранную группу
+    users[uid]["group"] = group
+    users[uid]["awaiting_name"] = True
+    save_users()
     
     # Теперь запрашиваем ФИО
     bot.edit_message_text(
@@ -353,9 +357,6 @@ def mark_callback(call):
         call.message.chat.id,
         call.message.message_id
     )
-    # Устанавливаем состояние ожидания ввода ФИО
-    users[uid]["awaiting_name"] = True
-    save_users()
 
 @bot.message_handler(func=lambda msg: users.get(str(msg.from_user.id), {}).get("awaiting_name"))
 def process_full_name(message):
@@ -572,6 +573,7 @@ class MarkState:
         self.subject = None    # предмет (для отображения)
         self.students = []     # список студентов для отметки
         self.attendance = {}   # словарь {student_id: status} (present/absent)
+        self.current_index = 0 # текущий индекс студента для отметки
 
 @bot.message_handler(commands=["mark"])
 def mark_start(message):
@@ -587,8 +589,10 @@ def mark_start(message):
     )
     bot.reply_to(message, "Оберіть групу для відмітки:", reply_markup=markup)
 
+# ================== ОБРАБОТЧИКИ ДЛЯ ОТМЕТКИ ==================
 @bot.callback_query_handler(func=lambda call: call.data.startswith("mark_"))
 def mark_callback(call):
+    """Обработчик для отметки посещаемости (mark_)"""
     admin_id = call.from_user.id
     state = mark_states.get(admin_id)
     if not state:
@@ -638,8 +642,6 @@ def mark_callback(call):
             state.step = 2
             # Переходим к выбору пары
             choose_pair(call.message.chat.id, admin_id, call.message.message_id)
-    
-    # Обработка ручного ввода даты будет в отдельном хендлере
 
 def choose_pair(chat_id, admin_id, message_id=None):
     state = mark_states[admin_id]
@@ -720,28 +722,12 @@ def mark_pair_callback(call):
         state.attendance[s["full_name"]] = "absent"
     
     state.step = 4
+    state.current_index = 0
     # Показываем первого студента для отметки
     show_next_student(call.message.chat.id, admin_id, call.message.message_id)
 
 def show_next_student(chat_id, admin_id, message_id=None):
     state = mark_states[admin_id]
-    # Находим первого неотмеченного
-    for student in state.students:
-        if student["full_name"] not in state.attendance:
-            # такого не должно быть, но на всякий случай
-            state.attendance[student["full_name"]] = "absent"
-    
-    # Список студентов, которые ещё не имеют статуса (хотя у всех уже есть статус)
-    # Мы будем показывать по одному, предлагая отметить присутствующим/отсутствующим
-    # Для удобства сделаем список ещё не рассмотренных: это те, у кого статус "absent" (изначально все)
-    # Но чтобы можно было изменить, будем просто проходиться по списку и ждать действий.
-    # Упростим: будем последовательно показывать каждого студента с кнопками "Присутній", "Відсутній", "Завершити"
-    
-    # Найдём первого студента, по которому ещё не было действия? Но у всех уже есть статус по умолчанию.
-    # Лучше будем проходиться по списку и давать возможность изменить статус.
-    # Сделаем переменную current_index
-    if not hasattr(state, "current_index"):
-        state.current_index = 0
     
     if state.current_index >= len(state.students):
         # Все обработаны, завершаем
