@@ -26,7 +26,7 @@ threading.Thread(target=run_flask, daemon=True).start()
 # =======================================
 
 # ================== НАСТРОЙКИ ==================
-TOKEN = "8235493571:AAEWmFW3zyWw9i4j_JdRaj_4lRK_3mW9XbE"
+TOKEN = "8300421705:AAGzPJIF1Ia-GjHK-lriCeuDzOd39PgdvOg"
 bot = telebot.TeleBot(TOKEN)
 
 # Удаляем вебхук на всякий случай
@@ -36,7 +36,7 @@ except Exception as e:
     print("Ошибка при удалении webhook:", e)
 
 MAIN_ADMIN_ID = 1509389908  # Ваш ID (староста)
-ADMIN_IDS = {MAIN_ADMIN_ID}  # Множество админов, сюда можно добавлять заместителя
+ADMIN_IDS = 6294378266, 5460930562, 5180067949, 6383870956  # Множество админов, сюда можно добавлять заместителя
 
 REFERENCE_MONDAY = date(2026, 1, 12)
 REFERENCE_WEEK_TYPE = "чисельник"
