@@ -36,7 +36,7 @@ except Exception as e:
     print("Ошибка при удалении webhook:", e)
 
 MAIN_ADMIN_ID = 1509389908  # Ваш ID (староста)
-ADMIN_IDS = 6294378266, 5460930562, 5180067949, 6383870956  # Множество админов, сюда можно добавлять заместителя
+ADMIN_IDS = {6294378266, 5460930562, 5180067949, 6383870956, MAIN_ADMIN_ID}  # Множество админов
 
 REFERENCE_MONDAY = date(2026, 1, 12)
 REFERENCE_WEEK_TYPE = "чисельник"
@@ -45,10 +45,10 @@ REFERENCE_WEEK_TYPE = "чисельник"
 USERS_FILE = "users.json"           # информация о пользователях (id, группа, фио, role)
 STUDENTS_FILE = "students.json"      # список студентов с привязкой к группе (ФИО, tg_id, группа)
 ATTENDANCE_FILE = "attendance.json"  # журнал посещаемости
-SCHEDULE_FILE = "schedule.json"      # расписание (может использоваться для получения списка пар)
+SCHEDULE_FILE = "schedule.json"      # расписание
 SUBSTITUTIONS_FILE = "substitutions.json"  # замены на конкретные даты
 
-# ================== РАСПИСАНИЕ (копируем из твоего сообщения) ==================
+# ================== РАСПИСАНИЕ ==================
 def create_schedule_bcig():
     return {
         "monday": {
@@ -207,7 +207,7 @@ def save_schedule(data):
 
 schedule = load_schedule()
 
-# Замены на конкретные даты (хранятся в виде: {date_str: {group: {pair_num: subject, room, teacher}})
+# Замены на конкретные даты
 def load_substitutions():
     path = Path(SUBSTITUTIONS_FILE)
     if not path.exists():
@@ -299,7 +299,7 @@ def remember_user(message):
             "id": u.id,
             "username": u.username or "",
             "first_name": u.first_name or "",
-            "role": "student",  # по умолчанию студент
+            "role": "student",
             "group": None,
             "full_name": None,
             "registered": False
@@ -312,9 +312,9 @@ def send_welcome(message):
     remember_user(message)
     uid = str(message.from_user.id)
     user = users[uid]
-    
+
+    # Якщо користувач вже зареєстрований
     if user.get("registered"):
-        # Пользователь уже зарегистрирован
         text = (
             f"Привіт, {user.get('full_name', '')}!\n"
             f"Твоя група: {user.get('group', 'не вказана')}\n\n"
@@ -325,19 +325,41 @@ def send_welcome(message):
         if is_admin(message.from_user.id):
             text += "\n👑 Адмін-команди:\n/adminhelp"
         bot.reply_to(message, text)
-    else:
-        # Предлагаем зарегистрироваться: ввести ФИО и выбрать группу
-        markup = InlineKeyboardMarkup(row_width=1)
-        markup.add(
-            InlineKeyboardButton("БЦІГ-25", callback_data="reg_group_БЦІГ-25"),
-            InlineKeyboardButton("БЦІСТ-25 (включая ТЕ-25)", callback_data="reg_group_БЦІСТ-25")
+        return
+
+    # Перевіряємо, чи є студент із таким tg_id у списку студентів
+    student_entry = next((s for s in students if s.get("tg_id") == message.from_user.id), None)
+    if student_entry:
+        # Автоматично реєструємо
+        users[uid]["full_name"] = student_entry["full_name"]
+        users[uid]["group"] = student_entry["group"]
+        users[uid]["registered"] = True
+        save_users()
+        text = (
+            f"Привіт, {student_entry['full_name']}!\n"
+            f"Твоя група: {student_entry['group']}\n\n"
+            "Ти вже є в списку студентів. Тепер можеш користуватись ботом.\n"
+            "Команди:\n"
+            "/my_stats – моя статистика відвідування\n"
+            "/mygroup – показати мою групу\n"
         )
-        bot.reply_to(
-            message,
-            "Привіт! Я бот для обліку відвідування занять 📚\n\n"
-            "Спочатку зареєструйся: обери свою групу:",
-            reply_markup=markup
-        )
+        if is_admin(message.from_user.id):
+            text += "\n👑 Адмін-команди:\n/adminhelp"
+        bot.reply_to(message, text)
+        return
+
+    # Новий користувач – пропонуємо вибрати групу
+    markup = InlineKeyboardMarkup(row_width=1)
+    markup.add(
+        InlineKeyboardButton("БЦІГ-25", callback_data="reg_group_БЦІГ-25"),
+        InlineKeyboardButton("БЦІСТ-25 (включая ТЕ-25)", callback_data="reg_group_БЦІСТ-25")
+    )
+    bot.reply_to(
+        message,
+        "Привіт! Я бот для обліку відвідування занять 📚\n\n"
+        "Спочатку зареєструйся: обери свою групу:",
+        reply_markup=markup
+    )
 
 # ================== ОБРАБОТЧИК РЕГИСТРАЦИИ ==================
 @bot.callback_query_handler(func=lambda call: call.data.startswith("reg_group_"))
@@ -345,13 +367,11 @@ def reg_group_callback(call):
     """Обработчик выбора группы при регистрации"""
     uid = str(call.from_user.id)
     group = call.data.split("_")[2]
-    
-    # Сохраняем выбранную группу
+
     users[uid]["group"] = group
     users[uid]["awaiting_name"] = True
     save_users()
-    
-    # Теперь запрашиваем ФИО
+
     bot.edit_message_text(
         f"Групу вибрано: {group}\n\nТепер введи своє прізвище та ім'я повністю (наприклад, Петренко Іван).",
         call.message.chat.id,
@@ -361,16 +381,23 @@ def reg_group_callback(call):
 @bot.message_handler(func=lambda msg: users.get(str(msg.from_user.id), {}).get("awaiting_name"))
 def process_full_name(message):
     uid = str(message.from_user.id)
+
+    # Якщо це команда – скидаємо стан
+    if message.text.startswith('/'):
+        users[uid]["awaiting_name"] = False
+        save_users()
+        return
+
     full_name = message.text.strip()
     if len(full_name.split()) < 2:
         bot.reply_to(message, "Будь ласка, введи ім'я та прізвище (наприклад, Петренко Іван)")
         return
-    
+
     users[uid]["full_name"] = full_name
     users[uid]["registered"] = True
     users[uid]["awaiting_name"] = False
-    # Добавляем в список студентов, если ещё нет
-    # Проверяем, нет ли уже студента с таким tg_id
+
+    # Додаємо в список студентів, якщо ще немає
     existing = next((s for s in students if s.get("tg_id") == message.from_user.id), None)
     if not existing:
         students.append({
@@ -380,9 +407,9 @@ def process_full_name(message):
             "username": users[uid].get("username", ""),
         })
         save_students()
-    
+
     save_users()
-    
+
     bot.reply_to(message, f"✅ Реєстрація завершена! Ти {full_name}, група {users[uid]['group']}.\nТепер ти можеш дивитися свою статистику через /my_stats.")
 
 @bot.message_handler(commands=["mygroup"])
@@ -402,16 +429,14 @@ def my_stats_cmd(message):
     if not user.get("registered"):
         bot.reply_to(message, "Спочатку зареєструйся через /start.")
         return
-    
-    # Получаем статистику для этого пользователя
+
     student_attendance = [a for a in attendance if a.get("student_id") == message.from_user.id]
-    
-    # Подсчёт за неделю, месяц, полугодие
+
     today = date.today()
     week_ago = today - timedelta(days=7)
     month_ago = today - timedelta(days=30)
     half_year_ago = today - timedelta(days=182)
-    
+
     def count_for_period(start_date):
         total = 0
         present = 0
@@ -422,11 +447,11 @@ def my_stats_cmd(message):
                 if rec.get("status") == "present":
                     present += 1
         return total, present
-    
+
     week_total, week_present = count_for_period(week_ago)
     month_total, month_present = count_for_period(month_ago)
     half_total, half_present = count_for_period(half_year_ago)
-    
+
     response = (
         f"📊 Статистика відвідування для {user.get('full_name', '')}\n\n"
         f"За останній тиждень:\n"
@@ -436,7 +461,7 @@ def my_stats_cmd(message):
         f"За останнє півріччя:\n"
         f"   Всього пар: {half_total}, був: {half_present}, пропустив: {half_total - half_present}\n"
     )
-    
+
     bot.reply_to(message, response)
 
 # ================== АДМИН-КОМАНДЫ ==================
@@ -450,7 +475,7 @@ def admin_help(message):
         "/add_deputy <id> – додати заступника (по id Telegram)\n"
         "/remove_deputy <id> – видалити заступника\n"
         "/list_deputies – список заступників\n"
-        "/add_student – додати студента вручну (після команди введеш ФІО та групу)\n"
+        "/add_student – додати студента вручну (формат: ФІО, Група або ФІО, Група, ID)\n"
         "/list_students <група> – список студентів групи\n"
         "/export <група> <дата> – вивантажити журнал за день у Excel\n"
         "/export_month <група> – вивантажити статистику за останній місяць\n"
@@ -511,37 +536,85 @@ def list_deputies(message):
 def add_student_cmd(message):
     if not is_admin(message.from_user.id):
         return
-    # Ожидаем ввод: ФИО и группа через запятую или пробел
-    bot.reply_to(message, "Введіть дані студента у форматі:\nПрізвище Ім'я, Група\nНаприклад: Петренко Іван, БЦІГ-25")
-    # Устанавливаем состояние для админа
+    bot.reply_to(message, "Введіть дані студента у форматі:\n"
+                          "`Прізвище Ім'я, Група` – без ID\n"
+                          "`Прізвище Ім'я, Група, ID` – з Telegram ID\n"
+                          "Наприклад: Петренко Іван, БЦІГ-25\n"
+                          "Або: Петренко Іван, БЦІГ-25, 123456789", parse_mode="Markdown")
     users[str(message.from_user.id)]["awaiting_student"] = True
     save_users()
 
 @bot.message_handler(func=lambda msg: users.get(str(msg.from_user.id), {}).get("awaiting_student"))
 def process_add_student(message):
     uid = str(message.from_user.id)
-    text = message.text.strip()
-    parts = text.split(',', 1)
-    if len(parts) != 2:
-        bot.reply_to(message, "Неправильний формат. Використовуйте: Прізвище Ім'я, Група")
+
+    # Якщо це команда – скидаємо стан
+    if message.text.startswith('/'):
+        users[uid]["awaiting_student"] = False
+        save_users()
         return
+
+    text = message.text.strip()
+    parts = text.split(',')
+    if len(parts) < 2:
+        bot.reply_to(message, "Неправильний формат. Використовуйте: Прізвище Ім'я, Група або Прізвище Ім'я, Група, ID")
+        users[uid]["awaiting_student"] = False
+        save_users()
+        return
+
     full_name = parts[0].strip()
     group = parts[1].strip()
+    tg_id = None
+    if len(parts) >= 3:
+        try:
+            tg_id = int(parts[2].strip())
+        except ValueError:
+            bot.reply_to(message, "ID має бути числом (або залиште порожнім)")
+            users[uid]["awaiting_student"] = False
+            save_users()
+            return
+
     if group not in ["БЦІГ-25", "БЦІСТ-25"]:
         bot.reply_to(message, "Група має бути БЦІГ-25 або БЦІСТ-25")
+        users[uid]["awaiting_student"] = False
+        save_users()
         return
-    
-    # Добавляем студента без tg_id (пока не зарегистрирован)
-    students.append({
-        "tg_id": None,
+
+    # Додаємо студента до списку
+    student_entry = {
+        "tg_id": tg_id,
         "full_name": full_name,
         "group": group,
         "username": "",
-    })
+    }
+    students.append(student_entry)
     save_students()
+
+    # Якщо є tg_id, створюємо/оновлюємо запис у users
+    if tg_id:
+        uid_str = str(tg_id)
+        if uid_str not in users:
+            users[uid_str] = {
+                "id": tg_id,
+                "username": "",
+                "first_name": "",
+                "role": "student",
+                "group": group,
+                "full_name": full_name,
+                "registered": True
+            }
+        else:
+            # Оновлюємо існуючого
+            users[uid_str]["group"] = group
+            users[uid_str]["full_name"] = full_name
+            users[uid_str]["registered"] = True
+        save_users()
+        bot.reply_to(message, f"✅ Студента {full_name} (ID: {tg_id}) додано до групи {group} та зареєстровано в боті.")
+    else:
+        bot.reply_to(message, f"✅ Студента {full_name} додано до групи {group} (без ID). Коли він зайде в бот, йому треба буде зареєструватися.")
+
     users[uid]["awaiting_student"] = False
     save_users()
-    bot.reply_to(message, f"✅ Студента {full_name} додано до групи {group}.")
 
 @bot.message_handler(commands=["list_students"])
 def list_students_cmd(message):
@@ -599,14 +672,14 @@ def mark_callback_handler(call):
     """Единый обработчик для всех mark_ callback'ов"""
     admin_id = call.from_user.id
     state = mark_states.get(admin_id)
-    
+
     # Обработка отмены (работает всегда)
     if call.data == "mark_cancel":
         if admin_id in mark_states:
             del mark_states[admin_id]
         bot.edit_message_text("❌ Відміну скасовано.", call.message.chat.id, call.message.message_id)
         return
-    
+
     # Обработка действий после завершения пары
     if call.data in ["mark_another_pair", "mark_finish_day", "mark_finish"]:
         if not state:
@@ -623,13 +696,13 @@ def mark_callback_handler(call):
             del mark_states[admin_id]
             bot.edit_message_text("✅ Роботу завершено.", call.message.chat.id, call.message.message_id)
         return
-    
+
     # Обработка выбора группы
     if call.data.startswith("mark_group_"):
         if not state:
             bot.answer_callback_query(call.id, "Спочатку почніть /mark")
             return
-            
+
         state.group = call.data.split("_")[2]
         state.step = 1
         # Шаг 2: выбор даты
@@ -650,13 +723,13 @@ def mark_callback_handler(call):
             reply_markup=markup
         )
         return
-    
+
     # Обработка выбора даты
     if call.data.startswith("mark_date_"):
         if not state:
             bot.answer_callback_query(call.id, "Спочатку почніть /mark")
             return
-            
+
         if call.data == "mark_date_manual":
             bot.edit_message_text(
                 "Введіть дату у форматі РРРР-ММ-ДД (наприклад 2025-03-20):",
@@ -672,57 +745,57 @@ def mark_callback_handler(call):
             # Переходим к выбору пары
             choose_pair(call.message.chat.id, admin_id, call.message.message_id, exclude=state.marked_pairs)
             return
-    
+
     # Обработка выбора пары
     if call.data.startswith("mark_pair_"):
         if not state:
             bot.answer_callback_query(call.id, "Спочатку почніть /mark")
             return
-            
+
         pair_num = call.data.split("_")[2]
         state.pair_num = pair_num
-        
+
         # Получаем предмет
         day_key = get_day_key(state.date)
         week_type = get_week_type(state.date)
         group_schedule = schedule[state.group].get(day_key, {}).get(week_type, {})
         date_str = state.date.isoformat()
-        
+
         if date_str in substitutions and state.group in substitutions[date_str] and pair_num in substitutions[date_str][state.group]:
             subj = substitutions[date_str][state.group][pair_num].get("subject", "Невідомо")
         else:
             subj = group_schedule.get(pair_num, {}).get("subject", "Невідомо")
         state.subject = subj
-        
+
         # Получаем список студентов группы
         group_students = get_students_by_group(state.group)
         if not group_students:
             bot.edit_message_text("У цій групі немає студентів. Спочатку додайте через /add_student.", call.message.chat.id, call.message.message_id)
             del mark_states[admin_id]
             return
-        
+
         state.students = group_students
         # Сбросить attendance для новой пары
         state.attendance = {}
         for s in group_students:
             state.attendance[s["full_name"]] = "absent"
-        
+
         state.step = 4
         state.current_index = 0
         show_next_student(call.message.chat.id, admin_id, call.message.message_id)
         return
-    
+
     # Обработка отметки студента
     if call.data.startswith("mark_student_"):
         if not state:
             bot.answer_callback_query(call.id, "Спочатку почніть /mark")
             return
-            
+
         action = call.data.split("_")[2]
         if state.current_index >= len(state.students):
             return
         student = state.students[state.current_index]
-        
+
         if action == "present":
             state.attendance[student["full_name"]] = "present"
             state.current_index += 1
@@ -733,7 +806,7 @@ def mark_callback_handler(call):
             # Завершить отметку текущей пары досрочно
             finish_marking(call.message.chat.id, admin_id, call.message.message_id, ask_next=True)
             return
-        
+
         # Переходим к следующему студенту или завершаем
         if state.current_index < len(state.students):
             show_next_student(call.message.chat.id, admin_id, call.message.message_id)
@@ -748,13 +821,13 @@ def choose_pair(chat_id, admin_id, message_id=None, exclude=None):
     day_key = get_day_key(state.date)
     week_type = get_week_type(state.date)
     group_schedule = schedule[state.group].get(day_key, {}).get(week_type, {})
-    
+
     # Применяем замены
     date_str = state.date.isoformat()
     if date_str in substitutions and state.group in substitutions[date_str]:
         for pair_num, sub in substitutions[date_str][state.group].items():
             group_schedule[pair_num] = sub
-    
+
     pairs = []
     for p in sorted(group_schedule.keys(), key=lambda x: int(x) if x.isdigit() else 0):
         if p in exclude:
@@ -764,7 +837,7 @@ def choose_pair(chat_id, admin_id, message_id=None, exclude=None):
         else:
             subject = group_schedule[p].get("subject", "Невідомо")
             pairs.append((p, f"{p} пара — {subject}"))
-    
+
     if not pairs:
         bot.send_message(chat_id, "Усі пари на цей день вже відмічені.")
         # Предложить завершить день
@@ -773,12 +846,12 @@ def choose_pair(chat_id, admin_id, message_id=None, exclude=None):
         markup.add(InlineKeyboardButton("❌ Завершити", callback_data="mark_finish"))
         bot.send_message(chat_id, "Що бажаєте зробити далі?", reply_markup=markup)
         return
-    
+
     markup = InlineKeyboardMarkup(row_width=1)
     for p_val, p_text in pairs:
         markup.add(InlineKeyboardButton(p_text, callback_data=f"mark_pair_{p_val}"))
     markup.add(InlineKeyboardButton("❌ Скасувати", callback_data="mark_cancel"))
-    
+
     if message_id:
         bot.edit_message_text(
             f"Група: {state.group}\nДата: {state.date.strftime('%d.%m.%Y')}\nОберіть пару:",
@@ -796,15 +869,15 @@ def choose_pair(chat_id, admin_id, message_id=None, exclude=None):
 
 def show_next_student(chat_id, admin_id, message_id=None):
     state = mark_states[admin_id]
-    
+
     if state.current_index >= len(state.students):
         finish_marking(chat_id, admin_id, message_id, ask_next=True)
         return
-    
+
     student = state.students[state.current_index]
     full_name = student["full_name"]
     current_status = state.attendance.get(full_name, "absent")
-    
+
     markup = InlineKeyboardMarkup(row_width=2)
     markup.add(
         InlineKeyboardButton("✅ Присутній", callback_data=f"mark_student_present"),
@@ -813,9 +886,9 @@ def show_next_student(chat_id, admin_id, message_id=None):
     markup.add(
         InlineKeyboardButton("⏩ Завершити", callback_data=f"mark_student_finish")
     )
-    
+
     text = f"📌 {full_name}\nПоточний статус: {'Присутній' if current_status == 'present' else 'Відсутній'}\n\nОберіть статус:"
-    
+
     if message_id:
         bot.edit_message_text(text, chat_id, message_id, reply_markup=markup)
     else:
@@ -824,7 +897,7 @@ def show_next_student(chat_id, admin_id, message_id=None):
 def finish_marking(chat_id, admin_id, message_id=None, ask_next=False):
     state = mark_states[admin_id]
     date_str = state.date.isoformat()
-    
+
     # Сохраняем текущую пару
     for student in state.students:
         status = state.attendance.get(student["full_name"], "absent")
@@ -849,15 +922,15 @@ def finish_marking(chat_id, admin_id, message_id=None, ask_next=False):
                 "status": status
             })
     save_attendance()
-    
+
     # Добавляем номер пары в список отмеченных
     if state.pair_num not in state.marked_pairs:
         state.marked_pairs.append(state.pair_num)
-    
+
     total = len(state.students)
     present = sum(1 for v in state.attendance.values() if v == "present")
     absent = total - present
-    
+
     summary = (
         f"✅ Пара {state.pair_num} ({state.subject}) відмічена!\n"
         f"Група: {state.group}\n"
@@ -865,12 +938,12 @@ def finish_marking(chat_id, admin_id, message_id=None, ask_next=False):
         f"Присутні: {present}\n"
         f"Відсутні: {absent}"
     )
-    
+
     if message_id:
         bot.edit_message_text(summary, chat_id, message_id)
     else:
         bot.send_message(chat_id, summary)
-    
+
     if ask_next:
         # Предлагаем дальнейшие действия
         markup = InlineKeyboardMarkup(row_width=1)
@@ -891,43 +964,43 @@ def export_day_report(admin_id, chat_id):
     if not state:
         bot.send_message(chat_id, "Стан не знайдено.")
         return
-    
+
     date_str = state.date.isoformat()
     group = state.group
     marked_pairs = state.marked_pairs
-    
+
     # Собираем все записи за этот день для этой группы по отмеченным парам
     day_records = [r for r in attendance if r.get("date") == date_str and r.get("group") == group and r.get("pair_num") in marked_pairs]
     if not day_records:
         bot.send_message(chat_id, "За цей день немає відмічених пар.")
         return
-    
+
     # Получаем список уникальных студентов
     students_list = sorted(set(r["student_name"] for r in day_records))
     # Получаем список уникальных пар
     pairs = set((r["pair_num"], r.get("subject", "")) for r in day_records)
     sorted_pairs = sorted(pairs, key=lambda x: int(x[0]) if x[0] != "org" else 0)
-    
+
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = f"Відвідування {date_str}"
-    
+
     # Заголовки
     ws.cell(row=1, column=1, value="Студент")
     for col, (pair_num, subject) in enumerate(sorted_pairs, start=2):
         ws.cell(row=1, column=col, value=f"{pair_num} ({subject})")
-    
+
     # Данные
     for row, student_name in enumerate(students_list, start=2):
         ws.cell(row=row, column=1, value=student_name)
         for col, (pair_num, subject) in enumerate(sorted_pairs, start=2):
             status = next((r["status"] for r in day_records if r["student_name"] == student_name and r["pair_num"] == pair_num), None)
             ws.cell(row=row, column=col, value="Присутній" if status == "present" else ("Відсутній" if status == "absent" else ""))
-    
+
     output = BytesIO()
     wb.save(output)
     output.seek(0)
-    
+
     bot.send_document(chat_id, output, visible_file_name=f"attendance_{group}_{date_str}_summary.xlsx")
     bot.send_message(chat_id, "✅ Звіт за день сформовано.")
 
@@ -936,43 +1009,43 @@ def generate_period_report(chat_id, group, start_date, end_date, period_name):
     """Сформировать отчёт за период (месяц/полугодие)"""
     start_str = start_date.isoformat()
     end_str = end_date.isoformat()
-    
-    records = [r for r in attendance 
-               if r.get("group") == group 
-               and r.get("date") >= start_str 
+
+    records = [r for r in attendance
+               if r.get("group") == group
+               and r.get("date") >= start_str
                and r.get("date") <= end_str]
-    
+
     if not records:
         bot.send_message(chat_id, f"За цей період немає записів для групи {group}.")
         return
-    
+
     wb = openpyxl.Workbook()
-    
+
     # Лист 1: Сводка по студентам
     ws_summary = wb.active
     ws_summary.title = "Зведений"
-    
+
     students_list = sorted(set(r["student_name"] for r in records))
     total_pairs = len(set((r["date"], r["pair_num"]) for r in records))
-    
+
     ws_summary.cell(row=1, column=1, value="Студент")
     ws_summary.cell(row=1, column=2, value="Всього пар")
     ws_summary.cell(row=1, column=3, value="Присутній")
     ws_summary.cell(row=1, column=4, value="Відсутній")
     ws_summary.cell(row=1, column=5, value="% відвідування")
-    
+
     for row, student in enumerate(students_list, start=2):
         student_records = [r for r in records if r["student_name"] == student]
         present = sum(1 for r in student_records if r["status"] == "present")
         absent = len(student_records) - present
         percent = round((present / len(student_records)) * 100, 1) if student_records else 0
-        
+
         ws_summary.cell(row=row, column=1, value=student)
         ws_summary.cell(row=row, column=2, value=len(student_records))
         ws_summary.cell(row=row, column=3, value=present)
         ws_summary.cell(row=row, column=4, value=absent)
         ws_summary.cell(row=row, column=5, value=f"{percent}%")
-    
+
     # Лист 2: Детально
     ws_detail = wb.create_sheet("Детально")
     ws_detail.cell(row=1, column=1, value="Дата")
@@ -980,8 +1053,7 @@ def generate_period_report(chat_id, group, start_date, end_date, period_name):
     ws_detail.cell(row=1, column=3, value="Предмет")
     ws_detail.cell(row=1, column=4, value="Студент")
     ws_detail.cell(row=1, column=5, value="Статус")
-    
-    # Сортируем записи по дате и паре
+
     sorted_records = sorted(records, key=lambda r: (r["date"], r["pair_num"]))
     row = 2
     for r in sorted_records:
@@ -991,7 +1063,7 @@ def generate_period_report(chat_id, group, start_date, end_date, period_name):
         ws_detail.cell(row=row, column=4, value=r["student_name"])
         ws_detail.cell(row=row, column=5, value="Присутній" if r["status"] == "present" else "Відсутній")
         row += 1
-    
+
     output = BytesIO()
     wb.save(output)
     output.seek(0)
@@ -1034,6 +1106,13 @@ def substitution_cmd(message):
 @bot.message_handler(func=lambda msg: users.get(str(msg.from_user.id), {}).get("subst_state") == "awaiting_date")
 def subst_date(message):
     uid = str(message.from_user.id)
+
+    # Якщо це команда – скидаємо стан
+    if message.text.startswith('/'):
+        users[uid].pop("subst_state", None)
+        save_users()
+        return
+
     text = message.text.strip().lower()
     if text in ["сьогодні", "сегодня"]:
         subst_date = date.today()
@@ -1047,6 +1126,7 @@ def subst_date(message):
             return
     users[uid]["subst_date"] = subst_date.isoformat()
     users[uid]["subst_state"] = "awaiting_group"
+    save_users()
     bot.reply_to(message, f"Дата: {subst_date.strftime('%d.%m.%Y')}\nТепер оберіть групу:", reply_markup=group_keyboard())
 
 def group_keyboard():
@@ -1065,13 +1145,15 @@ def subst_callback(call):
     if call.data == "subst_cancel":
         users[uid].pop("subst_state", None)
         users[uid].pop("subst_date", None)
+        save_users()
         bot.edit_message_text("❌ Заміну скасовано.", call.message.chat.id, call.message.message_id)
         return
-    
+
     if call.data.startswith("subst_group_"):
         group = call.data.split("_")[2]
         users[uid]["subst_group"] = group
         users[uid]["subst_state"] = "awaiting_pair"
+        save_users()
         bot.edit_message_text(
             f"Група: {group}\nВведіть номер пари (1-5 або 'org' для організаційної години):",
             call.message.chat.id,
@@ -1081,6 +1163,12 @@ def subst_callback(call):
 @bot.message_handler(func=lambda msg: users.get(str(msg.from_user.id), {}).get("subst_state") == "awaiting_pair")
 def subst_pair(message):
     uid = str(message.from_user.id)
+
+    if message.text.startswith('/'):
+        users[uid].pop("subst_state", None)
+        save_users()
+        return
+
     pair_input = message.text.strip().lower()
     if pair_input == "org":
         pair_num = "org"
@@ -1094,43 +1182,64 @@ def subst_pair(message):
             return
     users[uid]["subst_pair"] = pair_num
     users[uid]["subst_state"] = "awaiting_subject"
+    save_users()
     bot.reply_to(message, "Введіть новий предмет (або пропустіть, якщо не змінюється):")
 
 @bot.message_handler(func=lambda msg: users.get(str(msg.from_user.id), {}).get("subst_state") == "awaiting_subject")
 def subst_subject(message):
     uid = str(message.from_user.id)
+
+    if message.text.startswith('/'):
+        users[uid].pop("subst_state", None)
+        save_users()
+        return
+
     subject = message.text.strip()
     users[uid]["subst_subject"] = subject if subject else None
     users[uid]["subst_state"] = "awaiting_room"
+    save_users()
     bot.reply_to(message, "Введіть нову аудиторію (або пропустіть):")
 
 @bot.message_handler(func=lambda msg: users.get(str(msg.from_user.id), {}).get("subst_state") == "awaiting_room")
 def subst_room(message):
     uid = str(message.from_user.id)
+
+    if message.text.startswith('/'):
+        users[uid].pop("subst_state", None)
+        save_users()
+        return
+
     room = message.text.strip()
     users[uid]["subst_room"] = room if room else None
     users[uid]["subst_state"] = "awaiting_teacher"
+    save_users()
     bot.reply_to(message, "Введіть нового викладача (або пропустіть):")
 
 @bot.message_handler(func=lambda msg: users.get(str(msg.from_user.id), {}).get("subst_state") == "awaiting_teacher")
 def subst_teacher(message):
     uid = str(message.from_user.id)
+
+    if message.text.startswith('/'):
+        users[uid].pop("subst_state", None)
+        save_users()
+        return
+
     teacher = message.text.strip()
     users[uid]["subst_teacher"] = teacher if teacher else None
-    
+
     date_str = users[uid]["subst_date"]
     group = users[uid]["subst_group"]
     pair_num = users[uid]["subst_pair"]
-    
+
     if date_str not in substitutions:
         substitutions[date_str] = {}
     if group not in substitutions[date_str]:
         substitutions[date_str][group] = {}
-    
+
     day_key = get_day_key(datetime.strptime(date_str, "%Y-%m-%d").date())
     week_type = get_week_type(datetime.strptime(date_str, "%Y-%m-%d").date())
     original = schedule.get(group, {}).get(day_key, {}).get(week_type, {}).get(pair_num, {})
-    
+
     sub_entry = {
         "subject": users[uid]["subst_subject"] if users[uid]["subst_subject"] else original.get("subject", ""),
         "room": users[uid]["subst_room"] if users[uid]["subst_room"] else original.get("room", ""),
@@ -1138,12 +1247,13 @@ def subst_teacher(message):
     }
     substitutions[date_str][group][pair_num] = sub_entry
     save_substitutions()
-    
+
     bot.reply_to(message, f"✅ Заміну для {date_str}, група {group}, пара {pair_num} збережено.")
-    
+
     del users[uid]["subst_state"]
     for k in ["subst_date", "subst_group", "subst_pair", "subst_subject", "subst_room", "subst_teacher"]:
         users[uid].pop(k, None)
+    save_users()
 
 @bot.message_handler(commands=["view_substitutions"])
 def view_substitutions(message):
@@ -1176,31 +1286,31 @@ def export_cmd(message):
     except ValueError:
         bot.reply_to(message, "Неправильний формат дати. Використовуйте РРРР-ММ-ДД")
         return
-    
+
     day_records = [r for r in attendance if r.get("date") == date_str and r.get("group") == group]
     if not day_records:
         bot.reply_to(message, "За цей день немає записів про відвідування.")
         return
-    
+
     pairs = set((r["pair_num"], r.get("subject", "")) for r in day_records)
-    
+
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = f"Відвідування {date_str}"
-    
+
     students_list = sorted(set(r["student_name"] for r in day_records))
     sorted_pairs = sorted(pairs, key=lambda x: int(x[0]) if x[0] != "org" else 0)
-    
+
     ws.cell(row=1, column=1, value="Студент")
     for col, (pair_num, subject) in enumerate(sorted_pairs, start=2):
         ws.cell(row=1, column=col, value=f"{pair_num} ({subject})")
-    
+
     for row, student_name in enumerate(students_list, start=2):
         ws.cell(row=row, column=1, value=student_name)
         for col, (pair_num, subject) in enumerate(sorted_pairs, start=2):
             status = next((r["status"] for r in day_records if r["student_name"] == student_name and r["pair_num"] == pair_num), None)
             ws.cell(row=row, column=col, value="Присутній" if status == "present" else ("Відсутній" if status == "absent" else ""))
-    
+
     output = BytesIO()
     wb.save(output)
     output.seek(0)
@@ -1209,4 +1319,6 @@ def export_cmd(message):
 # ================== ЗАПУСК БОТА ==================
 if __name__ == "__main__":
     print("Attendance bot started")
+    print(f"Головний адмін: {MAIN_ADMIN_ID}")
+    print(f"Адміни: {ADMIN_IDS}")
     bot.infinity_polling()
