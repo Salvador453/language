@@ -241,7 +241,48 @@ users = load_users()
 def load_students():
     path = Path(STUDENTS_FILE)
     if not path.exists():
-        return []
+        # При первом запуске создаём список студентов из твоего списка
+        initial_students = [
+            # БЦІСТ-25 с ID
+            {"tg_id": 1271426468, "full_name": "Поліна Коняхіна", "group": "БЦІСТ-25", "username": ""},
+            {"tg_id": 8308504155, "full_name": "Валерія Осадча", "group": "БЦІСТ-25", "username": ""},
+            {"tg_id": 964331404,  "full_name": "Роман Шмельов", "group": "БЦІСТ-25", "username": ""},
+            {"tg_id": 2072289628, "full_name": "Катерина Вініченко", "group": "БЦІСТ-25", "username": ""},
+            {"tg_id": 5201471830, "full_name": "Аляб'єв Гліб", "group": "БЦІСТ-25", "username": ""},
+            # БЦІСТ-25 без ID
+            {"tg_id": None, "full_name": "Олександра Побережна", "group": "БЦІСТ-25", "username": ""},
+            {"tg_id": None, "full_name": "Ліна Березіна", "group": "БЦІСТ-25", "username": ""},
+            {"tg_id": None, "full_name": "Орина Карпа", "group": "БЦІСТ-25", "username": ""},
+            {"tg_id": None, "full_name": "Ленюк Валерія", "group": "БЦІСТ-25", "username": ""},
+            {"tg_id": None, "full_name": "Злата Бурцева", "group": "БЦІСТ-25", "username": ""},
+            {"tg_id": None, "full_name": "Вікторія Палець", "group": "БЦІСТ-25", "username": ""},
+            {"tg_id": None, "full_name": "Тимофій Іванов", "group": "БЦІСТ-25", "username": ""},
+            {"tg_id": None, "full_name": "Марія Забєліна", "group": "БЦІСТ-25", "username": ""},
+            {"tg_id": None, "full_name": "Ковпак Андрій", "group": "БЦІСТ-25", "username": ""},
+            {"tg_id": None, "full_name": "Чернишов Артем", "group": "БЦІСТ-25", "username": ""},
+            {"tg_id": None, "full_name": "Федоренко Захар", "group": "БЦІСТ-25", "username": ""},
+            {"tg_id": None, "full_name": "Дмитренко Анастасія", "group": "БЦІСТ-25", "username": ""},
+            {"tg_id": None, "full_name": "Боліла Валерія", "group": "БЦІСТ-25", "username": ""},
+            # БЦІГ-25 с ID
+            {"tg_id": 5460930562, "full_name": "Головко Олексій", "group": "БЦІГ-25", "username": ""},
+            {"tg_id": 6690780079, "full_name": "Колодуб Богдана", "group": "БЦІГ-25", "username": ""},
+            {"tg_id": 1649793559, "full_name": "Петренко Ярослава", "group": "БЦІГ-25", "username": ""},
+            {"tg_id": 5542839738, "full_name": "Пасічник Марія", "group": "БЦІГ-25", "username": ""},
+            {"tg_id": 6700437572, "full_name": "Лоцман Анна", "group": "БЦІГ-25", "username": ""},
+            {"tg_id": 1045528149, "full_name": "Лабур Даніїл", "group": "БЦІГ-25", "username": ""},
+            # БЦІГ-25 без ID
+            {"tg_id": None, "full_name": "Горбань Євгеній", "group": "БЦІГ-25", "username": ""},
+            {"tg_id": None, "full_name": "Беседін Роман", "group": "БЦІГ-25", "username": ""},
+            {"tg_id": None, "full_name": "Прокопенко Дмитро", "group": "БЦІГ-25", "username": ""},
+            {"tg_id": None, "full_name": "Песнєва Крістіна", "group": "БЦІГ-25", "username": ""},
+            {"tg_id": None, "full_name": "Павленко Ольга", "group": "БЦІГ-25", "username": ""},
+            {"tg_id": None, "full_name": "Мальчиков Єгор", "group": "БЦІГ-25", "username": ""},
+            {"tg_id": None, "full_name": "Лупарев Артем", "group": "БЦІГ-25", "username": ""},
+            {"tg_id": None, "full_name": "Іноземцев Ярослав", "group": "БЦІГ-25", "username": ""},
+            {"tg_id": None, "full_name": "Янчук Олена", "group": "БЦІГ-25", "username": ""},
+            {"tg_id": None, "full_name": "Хавер Єфим", "group": "БЦІГ-25", "username": ""},
+        ]
+        return initial_students
     with path.open("r", encoding="utf-8") as f:
         return json.load(f)
 
@@ -536,46 +577,86 @@ def list_deputies(message):
 def add_student_cmd(message):
     if not is_admin(message.from_user.id):
         return
-    bot.reply_to(message, "Введіть дані студента у форматі:\n"
-                          "`Прізвище Ім'я, Група` – без ID\n"
-                          "`Прізвище Ім'я, Група, ID` – з Telegram ID\n"
-                          "Наприклад: Петренко Іван, БЦІГ-25\n"
-                          "Або: Петренко Іван, БЦІГ-25, 123456789", parse_mode="Markdown")
-    users[str(message.from_user.id)]["awaiting_student"] = True
-    save_users()
+    # Якщо є аргументи – пробуємо розпарсити одразу
+    parts = message.text.split(maxsplit=1)
+    if len(parts) > 1:
+        # Є текст після команди
+        process_add_student_direct(message, parts[1])
+    else:
+        # Немає аргументів – запускаємо стан очікування
+        bot.reply_to(
+            message,
+            "Введіть дані студента у форматі:\n"
+            "• Через кому: `Прізвище Ім'я, Група, ID` (ID необов'язковий)\n"
+            "• Через пробіл: `Прізвище Ім'я Група ID` (ID необов'язковий)\n\n"
+            "Наприклад:\n"
+            "Петренко Іван, БЦІГ-25\n"
+            "Петренко Іван, БЦІГ-25, 123456789\n"
+            "або\n"
+            "Петренко Іван БЦІГ-25 123456789",
+            parse_mode="Markdown"
+        )
+        users[str(message.from_user.id)]["awaiting_student"] = True
+        save_users()
 
-@bot.message_handler(func=lambda msg: users.get(str(msg.from_user.id), {}).get("awaiting_student"))
-def process_add_student(message):
+def process_add_student_direct(message, args_text):
+    """Обробка аргументів, переданих прямо в команді"""
     uid = str(message.from_user.id)
+    args_text = args_text.strip()
 
-    # Якщо це команда – скидаємо стан
-    if message.text.startswith('/'):
-        users[uid]["awaiting_student"] = False
-        save_users()
-        return
-
-    text = message.text.strip()
-    parts = text.split(',')
-    if len(parts) < 2:
-        bot.reply_to(message, "Неправильний формат. Використовуйте: Прізвище Ім'я, Група або Прізвище Ім'я, Група, ID")
-        users[uid]["awaiting_student"] = False
-        save_users()
-        return
-
-    full_name = parts[0].strip()
-    group = parts[1].strip()
-    tg_id = None
-    if len(parts) >= 3:
-        try:
-            tg_id = int(parts[2].strip())
-        except ValueError:
-            bot.reply_to(message, "ID має бути числом (або залиште порожнім)")
+    # Спроба 1: розділити комами
+    if ',' in args_text:
+        parts = [p.strip() for p in args_text.split(',')]
+        if len(parts) == 2:
+            full_name, group = parts
+            tg_id = None
+        elif len(parts) == 3:
+            full_name, group, tg_id_str = parts
+            try:
+                tg_id = int(tg_id_str)
+            except ValueError:
+                bot.reply_to(message, "❌ ID має бути числом.")
+                users[uid]["awaiting_student"] = False
+                save_users()
+                return
+        else:
+            bot.reply_to(message, "❌ Неправильний формат. Використовуй: ПІБ, Група, ID (або без ID)")
+            users[uid]["awaiting_student"] = False
+            save_users()
+            return
+    else:
+        # Спроба 2: розділити пробілами
+        tokens = args_text.split()
+        if len(tokens) < 2:
+            bot.reply_to(message, "❌ Неправильний формат. Використовуй: ПІБ Група або ПІБ Група ID")
             users[uid]["awaiting_student"] = False
             save_users()
             return
 
+        # Перевіряємо, чи останній токен є числом (ID)
+        last_token = tokens[-1]
+        try:
+            # Спробуємо перетворити останній токен на int
+            tg_id = int(last_token)
+            # Якщо вдалося, то ID є, і група – передостанній токен
+            group = tokens[-2]
+            full_name = ' '.join(tokens[:-2])
+        except ValueError:
+            # Останній токен не число – значить, ID немає
+            tg_id = None
+            group = tokens[-1]
+            full_name = ' '.join(tokens[:-1])
+
+    # Перевіряємо групу
     if group not in ["БЦІГ-25", "БЦІСТ-25"]:
-        bot.reply_to(message, "Група має бути БЦІГ-25 або БЦІСТ-25")
+        bot.reply_to(message, "❌ Група має бути БЦІГ-25 або БЦІСТ-25")
+        users[uid]["awaiting_student"] = False
+        save_users()
+        return
+
+    # Перевіряємо ПІБ
+    if len(full_name.split()) < 2:
+        bot.reply_to(message, "❌ Вкажи хоча б ім'я та прізвище")
         users[uid]["awaiting_student"] = False
         save_users()
         return
@@ -604,7 +685,6 @@ def process_add_student(message):
                 "registered": True
             }
         else:
-            # Оновлюємо існуючого
             users[uid_str]["group"] = group
             users[uid_str]["full_name"] = full_name
             users[uid_str]["registered"] = True
@@ -615,6 +695,19 @@ def process_add_student(message):
 
     users[uid]["awaiting_student"] = False
     save_users()
+
+@bot.message_handler(func=lambda msg: users.get(str(msg.from_user.id), {}).get("awaiting_student"))
+def process_add_student(message):
+    uid = str(message.from_user.id)
+
+    # Якщо це команда – скидаємо стан
+    if message.text.startswith('/'):
+        users[uid]["awaiting_student"] = False
+        save_users()
+        return
+
+    # Викликаємо той самий парсер, що й для прямої передачі
+    process_add_student_direct(message, message.text)
 
 @bot.message_handler(commands=["list_students"])
 def list_students_cmd(message):
@@ -898,17 +991,20 @@ def finish_marking(chat_id, admin_id, message_id=None, ask_next=False):
     state = mark_states[admin_id]
     date_str = state.date.isoformat()
 
-    # Сохраняем текущую пару
+    # Сохраняем текущую пару (исправлено для студентов без ID)
     for student in state.students:
         status = state.attendance.get(student["full_name"], "absent")
         existing = None
         for idx, rec in enumerate(attendance):
-            if (rec.get("date") == date_str and
-                rec.get("pair_num") == state.pair_num and
-                rec.get("group") == state.group and
-                rec.get("student_id") == student.get("tg_id")):
-                existing = idx
-                break
+            if rec.get("date") == date_str and rec.get("pair_num") == state.pair_num and rec.get("group") == state.group:
+                if student.get("tg_id") is not None:
+                    if rec.get("student_id") == student.get("tg_id"):
+                        existing = idx
+                        break
+                else:
+                    if rec.get("student_name") == student["full_name"]:
+                        existing = idx
+                        break
         if existing is not None:
             attendance[existing]["status"] = status
         else:
