@@ -1491,7 +1491,7 @@ def setpair_cmd(message):
         )
         return
 
-    parts = rest.split(maxsplit=10)
+    parts = rest.split(maxsplit=5)
     if len(parts) < 6:
         bot.reply_to(message, "Недостатньо параметрів")
         return
