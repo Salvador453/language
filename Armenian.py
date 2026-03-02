@@ -1472,11 +1472,13 @@ def view_substitutions(message):
                 text += f"  {group}, пара {pair_num}: {sub.get('subject')} ({sub.get('room')}) – {sub.get('teacher')}\n"
     bot.reply_to(message, text)
 
-# ================== НОВАЯ СИСТЕМА ВРЕМЕННЫХ ИЗМЕНЕНИЙ (команды) ==================
 @bot.message_handler(commands=["setpair"])
 def setpair_cmd(message):
     remember_user(message)
-    if not is_admin(message):
+    
+    # ИСПРАВЛЕНИЕ: передаем message.from_user.id, а не message
+    if not is_admin(message.from_user.id):
+        bot.reply_to(message, "⛔ У вас немає прав для виконання цієї команди.")
         return
 
     try:
@@ -1490,6 +1492,8 @@ def setpair_cmd(message):
             "📝 Изменение действует до конца недели (воскресенья)"
         )
         return
+
+    # ... остальной код
 
     parts = rest.split(maxsplit=5)
     if len(parts) < 6:
